@@ -112,7 +112,37 @@ async function updateState() {
     }
   } catch (_) {}
 }
-function updateCurrentSiteButton() {\n  $("currentSiteBtn").textContent = mode() === "include" ? "Include this site" : "Exclude this site";\n}\nasync function getCurrentTabHost() {\n  const tabs = await chrome.tabs.query({active:true, currentWindow:true});\n  const url = tabs && tabs[0] ? tabs[0].url : "";\n  if (!url) throw new Error("Could not read the current tab URL.");\n  let parsed;\n  try { parsed = new URL(url); } catch (_) { throw new Error("This tab does not have a supported website address."); }\n  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) throw new Error("Open a regular HTTP or HTTPS website first.");\n  return parsed.hostname.toLowerCase().replace(/^www\\./, "");\n}\n$("currentSiteBtn").addEventListener("click", async () => {\n  const button = $("currentSiteBtn");\n  button.disabled = true;\n  try {\n    const host = await getCurrentTabHost();\n    const sites = parseSites();\n    if (!sites.includes(host)) sites.push(host);\n    const selectedMode = mode();\n    const result = await send("SAVE_RULES", {sites:sites, mode:selectedMode});\n    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not save site rule.");\n    $("siteList").value = result.sites.join("\\n");\n    $("siteStatus").textContent = result.sites.length + " valid domains saved · " + (selectedMode === "include" ? "Include" : "Exclude") + " mode.";\n    $("currentSiteStatus").textContent = host + (selectedMode === "include" ? " added to the Include list." : " added to the Exclude list.");\n    setMessage(result.active ? "Current site rule saved and applied." : "Current site added. Connect a proxy to activate rules.", "success");\n    await updateState();\n  } catch (error) { $("currentSiteStatus").textContent = error.message; setMessage(error.message, "error"); }\n  finally { button.disabled = false; updateCurrentSiteButton(); }\n});\n$("modeInclude").addEventListener("change", () => { updateModeHelp(); updateCurrentSiteButton(); });
+function updateCurrentSiteButton() {
+  $("currentSiteBtn").textContent = mode() === "include" ? "Include this site" : "Exclude this site";
+}
+async function getCurrentTabHost() {
+  const tabs = await chrome.tabs.query({active:true, currentWindow:true});
+  const url = tabs && tabs[0] ? tabs[0].url : "";
+  if (!url) throw new Error("Could not read the current tab URL.");
+  let parsed;
+  try { parsed = new URL(url); } catch (_) { throw new Error("This tab does not have a supported website address."); }
+  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) throw new Error("Open a regular HTTP or HTTPS website first.");
+  return parsed.hostname.toLowerCase().replace(/^www\./, "");
+}
+$("currentSiteBtn").addEventListener("click", async () => {
+  const button = $("currentSiteBtn");
+  button.disabled = true;
+  try {
+    const host = await getCurrentTabHost();
+    const sites = parseSites();
+    if (!sites.includes(host)) sites.push(host);
+    const selectedMode = mode();
+    const result = await send("SAVE_RULES", {sites:sites, mode:selectedMode});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not save site rule.");
+    $("siteList").value = result.sites.join("\n");
+    $("siteStatus").textContent = result.sites.length + " valid domains saved · " + (selectedMode === "include" ? "Include" : "Exclude") + " mode.";
+    $("currentSiteStatus").textContent = host + (selectedMode === "include" ? " added to the Include list." : " added to the Exclude list.");
+    setMessage(result.active ? "Current site rule saved and applied." : "Current site added. Connect a proxy to activate rules.", "success");
+    await updateState();
+  } catch (error) { $("currentSiteStatus").textContent = error.message; setMessage(error.message, "error"); }
+  finally { button.disabled = false; updateCurrentSiteButton(); }
+});
+$("modeInclude").addEventListener("change", () => { updateModeHelp(); updateCurrentSiteButton(); });
 $("modeExclude").addEventListener("change", () => { updateModeHelp(); updateCurrentSiteButton(); });
 $("proxySelect").addEventListener("change", updateProxyDetails);
 $("refreshBtn").addEventListener("click", refreshList);
