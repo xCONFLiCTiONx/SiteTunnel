@@ -1,47 +1,13 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>SiteTunnel</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <main>
-    <header>
-      <div class="mark">ST</div>
-      <div>
-        <h1>SiteTunnel</h1>
-        <p class="muted">Site-specific proxy</p>
-      </div>
-      <span id="statusPill" class="pill">OFF</span>
-    </header>
-    <section class="card">
-      <div class="sectionHead"><h2>Target sites</h2><span class="muted">Only these domains</span></div>
-      <div class="domain"><span class="dot"></span> pornhub.com</div>
-      <div class="domain"><span class="dot"></span> xvideos.com</div>
-      <p class="small muted">Subdomains are included. Other websites use your normal connection.</p>
-    </section>
-    <section class="card">
-      <div class="sectionHead"><h2>Netherlands proxies</h2><button id="refreshBtn" class="quiet">Refresh list</button></div>
-      <p id="listStatus" class="small muted">Loading public proxy list…</p>
-      <label for="proxySelect">Choose a proxy</label>
-      <select id="proxySelect" disabled><option>Loading…</option></select>
-      <div id="proxyDetails" class="small muted">Public proxies are run by third parties.</div>
-      <div class="actions"><button id="connectBtn" class="primary" disabled>Connect</button><button id="disconnectBtn" class="secondary">Disconnect</button></div>
-      <p id="message" class="message" role="status" aria-live="polite"></p>
-    </section>
-    <section class="card">
-      <h2>Route check</h2>
-      <p class="small muted">Temporarily checks the exit IP through the selected proxy. This does not test whether either adult site accepts the proxy.</p>
-      <button id="checkBtn" class="secondary" disabled>Check proxy exit IP</button>
-      <p id="ipResult" class="small"></p>
-    </section>
-    <footer>
-      <p>Free public proxies are not trusted VPNs. Use HTTPS sites only. A proxy operator can see connection metadata and may be unreliable.</p>
-      <a href="https://github.com/maximilianfeix/free-proxy-list" target="_blank" rel="noreferrer">Proxy list source ↗</a><span> · </span><a href="README.md" target="_blank">Setup & privacy notes</a>
-    </footer>
-  </main>
-  <script src="popup.js"></script>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SiteTunnel</title><link rel="stylesheet" href="popup.css"></head>
+<body><main>
+<header><div class="mark">ST</div><div class="brandCopy"><h1>SiteTunnel</h1><p class="muted">Your rules. Your proxy.</p></div><span id="statusPill" class="pill">DISCONNECTED</span></header>
+<section id="connectionBanner" class="connectionBanner disconnected" aria-live="polite"><span id="connectionIcon" class="connectionIcon">●</span><div><strong id="connectionTitle">Proxy disconnected</strong><p id="connectionDetail">Your saved site rules are not active.</p></div></section>
+<section class="card"><div class="sectionHead"><h2>Site rules</h2><span class="muted">One domain per line</span></div>
+<div class="modeChoices" role="radiogroup" aria-label="Site matching mode"><label class="modeChoice"><input type="radio" name="siteMode" id="modeInclude" value="include" checked><span>Include list</span></label><label class="modeChoice"><input type="radio" name="siteMode" id="modeExclude" value="exclude"><span>Exclude list</span></label></div>
+<p id="modeHelp" class="small muted">Only sites in this list use the selected proxy. All other sites connect directly.</p><label for="siteList">Your sites</label><textarea id="siteList" rows="6" spellcheck="false" placeholder="example.com&#10;shop.example.org&#10;subdomain.example.net"></textarea>
+<div class="listActions"><button id="saveSitesBtn" class="secondary">Save &amp; apply rules</button><button id="clearSitesBtn" class="quiet">Clear list</button></div><p id="siteStatus" class="small muted">Rules are saved on this device.</p></section>
+<section class="card"><div class="sectionHead"><h2>Proxy list</h2><button id="refreshBtn" class="quiet">Refresh list</button></div><p id="listStatus" class="small muted">Loading public proxy list…</p><label for="proxySelect">Choose a proxy</label><select id="proxySelect" disabled><option>Loading…</option></select><div id="proxyDetails" class="small muted">Public proxies are run by third parties.</div><div class="actions"><button id="connectBtn" class="primary" disabled>Connect proxy</button><button id="disconnectBtn" class="secondary" disabled>Disconnect</button></div><p id="message" class="message" role="status" aria-live="polite"></p></section>
+<section class="card"><h2>Route check</h2><p class="small muted">Temporarily checks the selected proxy's exit IP. This does not verify that every site will accept the proxy.</p><button id="checkBtn" class="secondary" disabled>Check proxy exit IP</button><p id="ipResult" class="small"></p></section>
+<footer><p>Public proxies are operated by third parties and are not trusted VPNs. Use HTTPS sites only. Proxy availability and exit country are not guaranteed.</p><a href="https://github.com/maximilianfeix/free-proxy-list" target="_blank" rel="noreferrer">Proxy list source ↗</a><span> · </span><a href="README.md" target="_blank">Setup &amp; privacy notes</a></footer>
+</main><script src="popup.js"></script></body></html>
