@@ -1,7 +1,10 @@
 
-const LIST_URL = "https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/nl.txt";
+const COUNTRY_NAMES = {nl:"Netherlands",us:"United States",gb:"United Kingdom",de:"Germany",fr:"France",ca:"Canada",ch:"Switzerland",se:"Sweden",no:"Norway",fi:"Finland",dk:"Denmark",ie:"Ireland",pl:"Poland",cz:"Czechia",es:"Spain",it:"Italy",jp:"Japan",sg:"Singapore",au:"Australia"};
 const $ = id => document.getElementById(id);
 let proxies = [];
+let allCandidates = [];
+let proxyCountry = {};
+let savedSiteProxyMap = {};
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
 
 function parseProxyLines(text) {
@@ -88,20 +91,19 @@ function renderConnection(state) {
   }
 }
 async function refreshList() {
-  $("refreshBtn").disabled = true;
-  $("listStatus").textContent = "Fetching the current Netherlands list…";
+  $("refreshBtn").disabled = true; $("loadCountryBtn").disabled = true;
+  const code = $("countrySelect").value || "nl";
+  $("listStatus").textContent = "Fetching " + (COUNTRY_NAMES[code] || code.toUpperCase()) + " proxy candidates…";
   try {
-    const response = await fetch(LIST_URL, {cache:"no-store"});
-    if (!response.ok) throw new Error("List source returned HTTP " + response.status);
-    proxies = parseProxyLines(await response.text());
-    renderProxies();
-    $("listStatus").textContent = proxies.length + " entries loaded from the public Netherlands list.";
-    if (proxies.length) setMessage("Choose a proxy, then connect.");
-  } catch (error) {
-    proxies = []; renderProxies();
-    $("listStatus").textContent = "Could not load list: " + error.message;
-    setMessage("Proxy list unavailable. Check your connection and refresh.", "error");
-  } finally { $("refreshBtn").disabled = false; }
+    const response = await fetch("https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/" + encodeURIComponent(code) + ".txt", {cache:"no-store"});
+    if (!response.ok) throw new Error("Country list returned HTTP " + response.status);
+    const loaded = parseProxyLines(await response.text());
+    for (const proxy of loaded) { if (!allCandidates.includes(proxy)) allCandidates.push(proxy); proxyCountry[proxy] = code; }
+    proxies = loaded; renderProxies(); renderSiteProxyMappings();
+    $("listStatus").textContent = loaded.length + " candidates from " + (COUNTRY_NAMES[code] || code.toUpperCase()) + "; " + allCandidates.length + " total candidates loaded across countries.";
+    if (proxies.length) setMessage("Loaded country proxy candidates. Test before trusting them.");
+  } catch (error) { proxies = []; renderProxies(); $("listStatus").textContent = "Could not load country list: " + error.message; setMessage("Country proxy list unavailable.", "error"); }
+  finally { $("refreshBtn").disabled = false; $("loadCountryBtn").disabled = false; }
 }
 async function updateState() {
   try {
