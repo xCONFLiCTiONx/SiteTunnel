@@ -193,7 +193,7 @@ $("buildPoolBtn").addEventListener("click", async () => {
         let ok = false;
         try {
           const response = await fetch("https://api.ipify.org/?sitetunnel=" + Date.now(), {cache:"no-store", signal:controller.signal});
-          if (response.ok) { const ip = (await response.text()).trim(); ok = /^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(ip); }
+          if (response.ok) { const ip = (await response.text()).trim(); ok = ip.split(".").length === 4 && ip.split(".").every(part => part.length > 0 && part.length <= 3 && Number(part) >= 0 && Number(part) <= 255); }
         } finally { clearTimeout(timeout); }
         const elapsed = Date.now() - started;
         if (ok && elapsed < 5000) healthy.push({proxy:proxy, latency:elapsed});
