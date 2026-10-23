@@ -10,8 +10,9 @@ internal static class Program
     private static readonly string Root = AppContext.BaseDirectory;
     private static readonly string TorDir = Path.Combine(Root, "Tor");
     private static readonly string TorExe = Path.Combine(TorDir, "tor.exe");
-    private static readonly string Torrc = Path.Combine(TorDir, "sitetunnel.torrc");
-    private static readonly string PidFile = Path.Combine(TorDir, "sitetunnel.pid");
+    private static readonly string StateDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SiteTunnel", "Tor");
+    private static readonly string Torrc = Path.Combine(StateDir, "sitetunnel.torrc");
+    private static readonly string PidFile = Path.Combine(StateDir, "sitetunnel.pid");
     private static Process? _tor;
 
     private static async Task<int> Main()
@@ -49,12 +50,13 @@ internal static class Program
             return new { ok = false, running = false, error = "Bundled Tor runtime is missing. Repair the SiteTunnel installation." };
 
         Directory.CreateDirectory(TorDir);
+        Directory.CreateDirectory(StateDir);
         await File.WriteAllTextAsync(Torrc, string.Join(Environment.NewLine, new[]
         {
             "SocksPort 127.0.0.1:9150",
             "SocksPolicy accept 127.0.0.1",
             "SocksPolicy reject *",
-            "DataDirectory " + Path.Combine(TorDir, "Data").Replace("\\", "/"),
+            "DataDirectory " + Path.Combine(StateDir, "Data").Replace("\\", "/"),
             "Log notice stdout",
             "SafeLogging 1"
         }) + Environment.NewLine);
