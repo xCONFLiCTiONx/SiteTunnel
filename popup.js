@@ -107,10 +107,64 @@ async function refreshList() {
   } catch (error) { proxies = []; renderProxies(); $("listStatus").textContent = "Could not load country list: " + error.message; setMessage("Country proxy list unavailable.", "error"); }
   finally { $("refreshBtn").disabled = false; $("loadCountryBtn").disabled = false; }
 }
+function normalizeHost(value) {
+  let host = String(value || "").trim().toLowerCase();
+  host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
+  return host;
+}
+function hostMatches(host, domain) {
+  return host === domain || host.endsWith("." + domain);
+}
+async function updateTabRoute(state) {
+  const active = Boolean(state && state.active);
+  try {
+    const tabs = await chrome.tabs.query({active:true, currentWindow:true});
+    const url = tabs && tabs[0] ? tabs[0].url : "";
+    const parsed = new URL(url || "");
+    if (!active) {
+      $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+      $("connectionDetail").textContent = "SiteTunnel is disconnected; saved routes are not active.";
+      return;
+    }
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) {
+      $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+      $("connectionDetail").textContent = "This browser page does not support site routing details.";
+      return;
+    }
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const map = state.siteProxyMap && typeof state.siteProxyMap === "object" ? state.siteProxyMap : {};
+    let mappedHost = "";
+    let mappedProxy = "";
+    for (const [rawDomain, proxy] of Object.entries(map)) {
+      const domain = normalizeHost(rawDomain);
+      if (domain && typeof proxy === "string" && proxy && hostMatches(host, domain) && domain.length > mappedHost.length) {
+        mappedHost = domain;
+        mappedProxy = proxy;
+      }
+    }
+    let route = "";
+    if (mappedProxy) {
+      route = "MAPPED · " + mappedProxy;
+    } else {
+      const sites = Array.isArray(state.sites) ? state.sites.map(normalizeHost).filter(Boolean) : [];
+      const matched = sites.some(domain => hostMatches(host, domain));
+      const usesDefault = state.mode === "exclude" ? !matched : matched;
+      route = usesDefault ? "DEFAULT · " + (state.selectedProxy || "proxy not selected") : "DIRECT · no proxy";
+    }
+    $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+    $("connectionDetail").textContent = host + " → " + route;
+  } catch (_) {
+    $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+    $("connectionDetail").textContent = active
+      ? "Could not determine this tab's configured route."
+      : "SiteTunnel is disconnected; saved routes are not active.";
+  }
+}
 async function updateState() {
   try {
     const state = await send("GET_STATE");
     renderConnection(state);
+    await updateTabRoute(state);
     if (state.levelOfControl && !["controlled_by_this_extension", "controllable_by_this_extension"].includes(state.levelOfControl)) {
       setMessage("Another policy or extension controls Chrome's proxy settings.", "error");
     }
