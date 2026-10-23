@@ -2,8 +2,7 @@
 const COUNTRY_NAMES = {nl:"Netherlands",us:"United States",gb:"United Kingdom",de:"Germany",fr:"France",ca:"Canada",ch:"Switzerland",se:"Sweden",no:"Norway",fi:"Finland",dk:"Denmark",ie:"Ireland",pl:"Poland",cz:"Czechia",es:"Spain",it:"Italy",jp:"Japan",sg:"Singapore",au:"Australia"};
 const $ = id => document.getElementById(id);
 let proxies = [];
-const TOR_PROXIES = ["socks5://127.0.0.1:9150", "socks5://127.0.0.1:9050"];
-let allCandidates = [...TOR_PROXIES];
+let allCandidates = [];
 let proxyCountry = {};
 let savedSiteProxyMap = {};
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
@@ -49,13 +48,6 @@ function updateModeHelp() {
 function renderProxies() {
   const select = $("proxySelect");
   select.replaceChildren();
-  const torGroup = document.createElement("optgroup"); torGroup.label = "Tor (requires Tor running locally)";
-  for (const proxy of TOR_PROXIES) {
-    const opt = document.createElement("option"); opt.value = proxy;
-    opt.textContent = proxy.endsWith(":9150") ? "Tor Browser · 127.0.0.1:9150" : "Tor service · 127.0.0.1:9050";
-    torGroup.append(opt);
-  }
-  select.append(torGroup);
   if (proxies.length) {
     const publicGroup = document.createElement("optgroup"); publicGroup.label = "Public proxies";
     for (const proxy of proxies) {
@@ -68,10 +60,7 @@ function renderProxies() {
 }
 function updateProxyDetails() {
   const proxy = $("proxySelect").value;
-  const isTor = TOR_PROXIES.includes(proxy);
-  $("proxyDetails").textContent = !proxy ? "No proxy selected" : isTor
-    ? (proxy.endsWith(":9150") ? "Tor Browser SOCKS5 · Start Tor Browser first; keep it running." : "Local Tor SOCKS5 service · Requires a Tor daemon listening on port 9050.") + " SiteTunnel does not install or start Tor. Verify Tor is connected before browsing."
-    : proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed";
+  $("proxyDetails").textContent = !proxy ? "No proxy selected" : proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed";
 }
 function renderConnection(state) {
   const active = Boolean(state && state.active);
@@ -273,6 +262,19 @@ $("connectBtn").addEventListener("click", async () => {
     await updateState();
   } catch (error) { setMessage(error.message || "Could not connect.", "error"); }
   finally { $("connectBtn").disabled = !proxies.length; }
+});
+$("torConnectBtn").addEventListener("click", async () => {
+  const button = $("torConnectBtn");
+  button.disabled = true;
+  setMessage("Starting bundled Tor and applying your site rules…");
+  try {
+    const result = await send("CONNECT_TOR", {sites:parseSites(), mode:mode()});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not connect to Tor.");
+    setMessage("Tor proxy configured. Confirm the exit IP with Route check before relying on it.", "success");
+    await updateState();
+  } catch (error) {
+    setMessage(error.message || "Could not start Tor.", "error");
+  } finally { button.disabled = false; }
 });
 $("disconnectBtn").addEventListener("click", async () => {
   try {
