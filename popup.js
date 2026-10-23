@@ -81,7 +81,7 @@ function renderConnection(state) {
   $("statusPill").textContent = active ? "CONNECTED" : "DISCONNECTED";
   $("statusPill").classList.toggle("on", active);
   $("disconnectBtn").disabled = !active;
-  if (state && state.siteProxyMap) savedSiteProxyMap = state.siteProxyMap;\n  if (state && state.sites) {
+  if (state && state.siteProxyMap) savedSiteProxyMap = state.siteProxyMap;\n  if (state && state.siteProxyMap) savedSiteProxyMap = state.siteProxyMap;\n  if (state && state.sites) {
     $("siteList").value = state.sites.join("\n");
     if (state.mode === "exclude") $("modeExclude").checked = true;
     else $("modeInclude").checked = true;
@@ -135,6 +135,21 @@ function renderSiteProxyMappings() {
     row.append(label, select); container.append(row);
   }
 }
+function renderSiteProxyMappings() {
+  const container = $("siteProxyMappings");
+  if (!container) return;
+  const sites = parseSites(); container.replaceChildren();
+  if (!sites.length) { container.textContent = "Add domains to your list to assign preferred proxies."; return; }
+  for (const host of sites) {
+    const row = document.createElement("div"); row.className = "siteProxyRow";
+    const label = document.createElement("label"); label.textContent = host; label.htmlFor = "siteproxy-" + host;
+    const select = document.createElement("select"); select.id = "siteproxy-" + host; select.dataset.host = host;
+    const def = document.createElement("option"); def.value = ""; def.textContent = "Use default proxy"; select.append(def);
+    const options = [...allCandidates]; if (savedSiteProxyMap[host] && !options.includes(savedSiteProxyMap[host])) options.unshift(savedSiteProxyMap[host]);
+    for (const proxy of options) { const opt = document.createElement("option"); opt.value = proxy; opt.textContent = (COUNTRY_NAMES[proxyCountry[proxy]] || (proxyCountry[proxy] || "Saved proxy").toUpperCase()) + " · " + proxy; select.append(opt); }
+    select.value = savedSiteProxyMap[host] || ""; row.append(label, select); container.append(row);
+  }
+}
 function updateCurrentSiteButton() {
   $("currentSiteBtn").textContent = mode() === "include" ? "Include this site" : "Exclude this site";
 }
@@ -179,6 +194,21 @@ $("saveSiteProxyMapBtn").addEventListener("click", async () => {
     if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not save proxy preferences.");
     savedSiteProxyMap = result.map || {};
     $("siteProxyStatus").textContent = Object.keys(savedSiteProxyMap).length + " per-site proxy overrides saved.";
+    setMessage("Domain proxy preferences saved and applied.", "success"); await updateState();
+  } catch (error) { $("siteProxyStatus").textContent = error.message; setMessage(error.message, "error"); }
+});
+$("countrySelect").addEventListener("change", refreshList);
+$("loadCountryBtn").addEventListener("click", refreshList);
+$("siteList").addEventListener("input", renderSiteProxyMappings);
+$("saveSiteProxyMapBtn").addEventListener("click", async () => {
+  try {
+    const sites = parseSites(); const selectedMode = mode();
+    const rules = await send("SAVE_RULES", {sites:sites, mode:selectedMode});
+    if (!rules || !rules.ok) throw new Error(rules && rules.error ? rules.error : "Could not save site list.");
+    const map = {}; for (const select of $("siteProxyMappings").querySelectorAll("select[data-host]")) if (select.value) map[select.dataset.host] = select.value;
+    const result = await send("SAVE_SITE_PROXY_MAP", {map:map});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not save proxy preferences.");
+    savedSiteProxyMap = result.map || {}; $("siteProxyStatus").textContent = Object.keys(savedSiteProxyMap).length + " per-site proxy overrides saved.";
     setMessage("Domain proxy preferences saved and applied.", "success"); await updateState();
   } catch (error) { $("siteProxyStatus").textContent = error.message; setMessage(error.message, "error"); }
 });
