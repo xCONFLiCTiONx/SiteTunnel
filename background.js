@@ -103,14 +103,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({active:Boolean(stored.active), selectedProxy:stored.selectedProxy || "", sites:stored.sites || [], mode:stored.mode || "include", connectedAt:stored.connectedAt || null, levelOfControl:setting.levelOfControl, healthyProxies:stored.healthyProxies || [], autoRandomize:Boolean(stored.autoRandomize)});
       } else if (message && message.type === "SET_TEMP_TEST") {
         const stored = await getSettings();
-        const proxy = stored.active ? stored.selectedProxy : message.proxy;
+        const proxy = message.proxy;
         if (!proxy) throw new Error("Select a proxy first.");
+        const current = await chrome.proxy.settings.get({incognito:false});
+        await chrome.storage.local.set({testPreviousProxyConfig:current.value || null, testHadProxyConfig:Boolean(current.value)});
         await applyProxy(proxy, stored.sites || [], stored.mode || "include", true);
         sendResponse({ok:true});
       } else if (message && message.type === "RESTORE_TARGETS") {
         const stored = await getSettings();
-        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false);
+        const testState = await chrome.storage.local.get(["testPreviousProxyConfig", "testHadProxyConfig"]);
+        if (testState.testHadProxyConfig && testState.testPreviousProxyConfig) await chrome.proxy.settings.set({value:testState.testPreviousProxyConfig, scope:"regular"});
         else await chrome.proxy.settings.clear({scope:"regular"});
+        await chrome.storage.local.remove(["testPreviousProxyConfig", "testHadProxyConfig"]);
+        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false);
         sendResponse({ok:true});
       }
     } catch (error) {
