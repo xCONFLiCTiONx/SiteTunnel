@@ -3,7 +3,7 @@
   "name": "SiteTunnel",
   "version": "0.2.0",
   "description": "A configurable site-specific proxy switcher with include and exclude rules.",
-  "permissions": ["proxy", "storage", "alarms"],
+  "permissions": ["proxy", "storage", "alarms", "activeTab"],
   "host_permissions": ["https://raw.githubusercontent.com/*", "https://api.ipify.org/*"],
   "action": {"default_title": "SiteTunnel", "default_popup": "popup.html"},
   "background": {"service_worker": "background.js"},
