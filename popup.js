@@ -1,4 +1,4 @@
-const LIST_URL = "https://maximilianfeix.github.io/proxy-scraper/nl.txt";
+const LIST_URL = "https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/nl.txt";
 const $ = id => document.getElementById(id);
 let proxies = [];
 
