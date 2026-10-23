@@ -150,7 +150,7 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name !== ALARM_NAME) return;
   const stored = await getSettings();
   if (stored.active && stored.selectedProxy) {
-    try { await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false); } catch (_) {}
+    try { await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {}); } catch (_) {}
   }
 });
 chrome.runtime.onStartup.addListener(async () => {
