@@ -285,7 +285,11 @@ $("disconnectBtn").addEventListener("click", async () => {
   } catch (error) { setMessage(error.message || "Could not disconnect.", "error"); }
 });
 $("checkBtn").addEventListener("click", async () => {
-  const proxy = $("proxySelect").value;
+  let proxy = $("proxySelect").value;
+  try {
+    const currentState = await send("GET_STATE");
+    if (currentState && currentState.active && currentState.selectedProxy) proxy = currentState.selectedProxy;
+  } catch (_) {}
   if (!proxy) return;
   $("checkBtn").disabled = true; $("ipResult").textContent = "Checking…";
   try {
