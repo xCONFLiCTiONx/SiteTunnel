@@ -6,7 +6,7 @@ function normalizeSites(sites) {
   const out = [];
   for (const raw of input) {
     let host = String(raw || "").trim().toLowerCase();
-    host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "");
+    host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
     if (!host || host.length > 253 || !host.includes(".")) continue;
     if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host)) continue;
     if (!out.includes(host)) out.push(host);
@@ -42,9 +42,9 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     (includeIpCheck ? "if (host === 'api.ipify.org') return " + JSON.stringify(directive) + ";\n" : "") +
     "var sites = " + JSON.stringify(normalized) + ";\n" +
     "var overrides = " + JSON.stringify(overrides) + ";\n" +
-    "for (var key in overrides) { if (host === key || host.endsWith('.' + key)) return overrides[key]; }\n" +
+    "for (var key in overrides) { if (Object.prototype.hasOwnProperty.call(overrides, key) && (host === key || host === 'www.' + key || host.indexOf('.' + key, host.length - key.length - 1) !== -1)) return overrides[key]; }\n" +
     "var matched = false;\n" +
-    "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host.endsWith('.' + sites[i])) { matched = true; break; } }\n" +
+    "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host === 'www.' + sites[i] || host.indexOf('.' + sites[i], host.length - sites[i].length - 1) !== -1) { matched = true; break; } }\n" +
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
     "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\n}";
 }
@@ -102,7 +102,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const mode = message.mode === "exclude" ? "exclude" : "include";
         const stored = await getSettings();
         const siteProxyMap = {};
-        for (const [host, preferred] of Object.entries(stored.siteProxyMap || {})) if (sites.includes(host)) siteProxyMap[host] = preferred;
+        for (const [rawHost, preferred] of Object.entries(stored.siteProxyMap || {})) {
+          const normalizedHosts = normalizeSites([rawHost]);
+          if (!normalizedHosts.length || typeof preferred !== "string" || !preferred) continue;
+          const host = normalizedHosts[0];
+          if (sites.includes(host)) siteProxyMap[host] = preferred;
+        }
         await chrome.storage.local.set({sites:sites, mode:mode, siteProxyMap:siteProxyMap});
         if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false, siteProxyMap);
         sendResponse({ok:true, sites:sites, mode:mode, active:Boolean(stored.active)});
