@@ -84,6 +84,7 @@ function renderConnection(state) {
     if (state.mode === "exclude") $("modeExclude").checked = true;
     else $("modeInclude").checked = true;
     updateModeHelp();
+    renderSiteProxyMappings();
   }
   if (active && state.selectedProxy) {
     const option = Array.from($("proxySelect").options).find(o => o.value === state.selectedProxy);
