@@ -48,6 +48,35 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
     "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\n}";
 }
+async function nativeTorCommand(command) {
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+    let port;
+    try { port = chrome.runtime.connectNative("com.xconflictionx.sitetunnel"); }
+    catch (error) { reject(new Error("SiteTunnel Windows helper is not installed. Run the SiteTunnel Windows installer.")); return; }
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { port.disconnect(); } catch (_) {}
+      reject(new Error("The SiteTunnel Windows helper did not respond in time."));
+    }, 35000);
+    port.onMessage.addListener(message => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try { port.disconnect(); } catch (_) {}
+      if (message && message.ok) resolve(message);
+      else reject(new Error(message && message.error ? message.error : "The Tor helper failed."));
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(new Error(chrome.runtime.lastError?.message || "Could not connect to the SiteTunnel Windows helper. Re-run the installer."));
+    });
+    port.postMessage({command});
+  });
+}
 async function getSettings() {
   return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize", "siteProxyMap"]);
 }
@@ -96,7 +125,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
       if (message && message.type === "CONNECT") sendResponse(await connect(message.proxy, message.sites, message.mode));
-      else if (message && message.type === "DISCONNECT") sendResponse(await disconnect());
+      else if (message && message.type === "DISCONNECT") {
+        const stored = await getSettings();
+        const result = await disconnect();
+        if (stored.selectedProxy === "socks5://127.0.0.1:9150") {
+          try { await nativeTorCommand("STOP_TOR"); } catch (_) {}
+        }
+        sendResponse(result);
+      } else if (message && message.type === "CONNECT_TOR") {
+        await nativeTorCommand("START_TOR");
+        const stored = await getSettings();
+        const sites = normalizeSites(message.sites ?? stored.sites ?? []);
+        const mode = message.mode === "exclude" ? "exclude" : (stored.mode === "exclude" ? "exclude" : "include");
+        sendResponse(await connect("socks5://127.0.0.1:9150", sites, mode));
+      } else if (message && message.type === "TOR_STATUS") {
+        sendResponse(await nativeTorCommand("TOR_STATUS"));
+      }
       else if (message && message.type === "SAVE_RULES") {
         const sites = normalizeSites(message.sites);
         const mode = message.mode === "exclude" ? "exclude" : "include";
