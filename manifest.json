@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "SiteTunnel",
+  "version": "0.1.0",
+  "description": "A site-specific proxy switcher for Pornhub and XVideos using public proxy lists.",
+  "permissions": ["proxy", "storage", "alarms"],
+  "host_permissions": [
+    "https://maximilianfeix.github.io/*",
+    "https://raw.githubusercontent.com/*",
+    "https://api.ipify.org/*"
+  ],
+  "action": {
+    "default_title": "SiteTunnel",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "minimum_chrome_version": "111"
+}
