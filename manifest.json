@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "name": "SiteTunnel",
   "version": "0.3.0",
-  "description": "Country-selectable proxy switcher with per-domain proxy preferences and include/exclude rules.",
+  "description": "Country-selectable proxy switcher with per-domain rules and managed Tor support on Windows.",
   "permissions": [
     "proxy",
     "storage",
     "alarms",
-    "activeTab"
+    "activeTab",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://raw.githubusercontent.com/*",
