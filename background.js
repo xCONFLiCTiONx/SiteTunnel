@@ -38,7 +38,7 @@ function pacScript(proxy, sites, mode, includeIpCheck) {
 }
 
 async function getSettings() {
-  return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize"]);
+  return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize", "siteProxyMap"]);
 }
 async function chooseHealthyProxy() {
   const stored = await getSettings();
