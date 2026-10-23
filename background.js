@@ -23,20 +23,27 @@ function proxyToPac(proxy) {
   return map[scheme] + " " + host + ":" + port;
 }
 
-function pacScript(proxy, sites, mode, includeIpCheck) {
+function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const directive = proxyToPac(proxy);
   const normalized = normalizeSites(sites);
   const selectedMode = mode === "exclude" ? "exclude" : "include";
-  return "function FindProxyForURL(url, host) {\n" +
-    "host = String(host || '').toLowerCase();\n" +
-    (includeIpCheck ? "if (host === 'api.ipify.org') return " + JSON.stringify(directive) + ";\n" : "") +
-    "var sites = " + JSON.stringify(normalized) + ";\n" +
-    "var matched = false;\n" +
-    "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host.endsWith('.' + sites[i])) { matched = true; break; } }\n" +
-    "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
-    "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\n}";
+  const overrides = {};
+  const sourceMap = siteProxyMap && typeof siteProxyMap === "object" ? siteProxyMap : {};
+  for (const host of normalized) {
+    if (!sourceMap[host] || typeof sourceMap[host] !== "string") continue;
+    try { overrides[host] = proxyToPac(sourceMap[host]); } catch (_) {}
+  }
+  return "function FindProxyForURL(url, host) {\\n" +
+    "host = String(host || '').toLowerCase();\\n" +
+    (includeIpCheck ? "if (host === 'api.ipify.org') return " + JSON.stringify(directive) + ";\\n" : "") +
+    "var sites = " + JSON.stringify(normalized) + ";\\n" +
+    "var overrides = " + JSON.stringify(overrides) + ";\\n" +
+    "for (var key in overrides) { if (host === key || host.endsWith('.' + key)) return overrides[key]; }\\n" +
+    "var matched = false;\\n" +
+    "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host.endsWith('.' + sites[i])) { matched = true; break; } }\\n" +
+    "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\\n" +
+    "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\\n}";
 }
-
 async function getSettings() {
   return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize", "siteProxyMap"]);
 }
