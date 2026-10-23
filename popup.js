@@ -174,6 +174,46 @@ $("checkBtn").addEventListener("click", async () => {
     setMessage("Proxy test failed. The endpoint may be offline or blocked.", "error");
   } finally { $("checkBtn").disabled = !proxies.length; }
 });
+$("buildPoolBtn").addEventListener("click", async () => {
+  const button = $("buildPoolBtn");
+  button.disabled = true;
+  const sample = proxies.slice(0, Math.min(12, proxies.length));
+  const healthy = [];
+  $("poolStatus").textContent = "Testing " + sample.length + " public proxies. This can take a minute…";
+  try {
+    for (let i = 0; i < sample.length; i++) {
+      const proxy = sample[i];
+      $("poolStatus").textContent = "Testing " + (i + 1) + "/" + sample.length + ": " + proxy;
+      try {
+        const setup = await send("SET_TEMP_TEST", {proxy:proxy});
+        if (!setup || !setup.ok) throw new Error("Could not configure test route");
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const started = Date.now();
+        let ok = false;
+        try {
+          const response = await fetch("https://api.ipify.org/?sitetunnel=" + Date.now(), {cache:"no-store", signal:controller.signal});
+          if (response.ok) { const ip = (await response.text()).trim(); ok = /^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(ip); }
+        } finally { clearTimeout(timeout); }
+        const elapsed = Date.now() - started;
+        if (ok && elapsed < 5000) healthy.push({proxy:proxy, latency:elapsed});
+      } catch (_) { }
+      finally { try { await send("RESTORE_TARGETS"); } catch (_) {} }
+    }
+    healthy.sort((a,b) => a.latency - b.latency);
+    const pool = healthy.slice(0, 8).map(x => x.proxy);
+    const saved = await send("SAVE_HEALTHY_POOL", {proxies:pool, autoRandomize:$("autoRandomize").checked});
+    if (!saved || !saved.ok) throw new Error(saved && saved.error ? saved.error : "Could not save pool");
+    $("poolStatus").textContent = "Saved " + pool.length + " responsive proxies from " + sample.length + " tested. Fastest measured: " + (healthy.length ? healthy[0].latency + " ms" : "none") + ". Randomization " + ($("autoRandomize").checked ? "enabled" : "disabled") + ".";
+    setMessage(pool.length ? "Healthy proxy pool saved." : "No proxies passed the basic test. Try refreshing the list later.", pool.length ? "success" : "error");
+  } catch (error) { $("poolStatus").textContent = "Pool test failed: " + error.message; setMessage(error.message, "error"); }
+  finally { button.disabled = false; await updateState(); }
+});
+$("autoRandomize").addEventListener("change", async () => {
+  const state = await send("GET_STATE");
+  const result = await send("SAVE_HEALTHY_POOL", {proxies:state.healthyProxies || [], autoRandomize:$("autoRandomize").checked});
+  if (result && result.ok) setMessage($("autoRandomize").checked ? "Randomization enabled for the next browser startup." : "Startup randomization disabled.", "success");
+});
 (async function init() {
   const saved = await chrome.storage.local.get(["sites", "mode"]);
   if (Array.isArray(saved.sites)) $("siteList").value = saved.sites.join("\n");
@@ -181,4 +221,7 @@ $("checkBtn").addEventListener("click", async () => {
   updateModeHelp();
   await refreshList();
   await updateState();
+  const state = await send("GET_STATE");
+  $("autoRandomize").checked = Boolean(state.autoRandomize);
+  if (state.healthyProxies && state.healthyProxies.length) $("poolStatus").textContent = state.healthyProxies.length + " saved healthy proxies available for startup randomization.";
 })();
