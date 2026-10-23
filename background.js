@@ -97,8 +97,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sites = normalizeSites(message.sites);
         const mode = message.mode === "exclude" ? "exclude" : "include";
         const stored = await getSettings();
-        await chrome.storage.local.set({sites:sites, mode:mode});
-        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false, stored.siteProxyMap || {});
+        const siteProxyMap = {};
+        for (const [host, preferred] of Object.entries(stored.siteProxyMap || {})) if (sites.includes(host)) siteProxyMap[host] = preferred;
+        await chrome.storage.local.set({sites:sites, mode:mode, siteProxyMap:siteProxyMap});
+        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false, siteProxyMap);
         sendResponse({ok:true, sites:sites, mode:mode, active:Boolean(stored.active)});
       } else if (message && message.type === "SAVE_SITE_PROXY_MAP") {
         const stored = await getSettings();
