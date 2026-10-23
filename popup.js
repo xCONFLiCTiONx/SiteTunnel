@@ -5,6 +5,9 @@ let proxies = [];
 let allCandidates = [];
 let proxyCountry = {};
 let savedSiteProxyMap = {};
+let allCandidates = [];
+let proxyCountry = {};
+let savedSiteProxyMap = {};
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
 
 function parseProxyLines(text) {
