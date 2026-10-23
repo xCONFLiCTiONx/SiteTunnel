@@ -208,7 +208,10 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name !== ALARM_NAME) return;
   const stored = await getSettings();
   if (stored.active && stored.selectedProxy) {
-    try { await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {}); } catch (_) {}
+    try {
+      if (stored.selectedProxy === "socks5://127.0.0.1:9150") await nativeTorCommand("START_TOR");
+      await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
+    } catch (_) {}
   }
 });
 chrome.runtime.onStartup.addListener(async () => {
@@ -217,6 +220,7 @@ chrome.runtime.onStartup.addListener(async () => {
   const randomProxy = stored.autoRandomize ? await chooseHealthyProxy() : null;
   const proxy = randomProxy || stored.selectedProxy;
   try {
+    if (proxy === "socks5://127.0.0.1:9150") await nativeTorCommand("START_TOR");
     await applyProxy(proxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
     if (proxy !== stored.selectedProxy) await chrome.storage.local.set({selectedProxy:proxy, connectedAt:Date.now()});
   } catch (_) {}
