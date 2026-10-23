@@ -53,12 +53,12 @@ async function chooseHealthyProxy() {
   if (!pool.length) return null;
   return pool[Math.floor(Math.random() * pool.length)];
 }
-async function applyProxy(proxy, sites, mode, includeIpCheck) {
+async function applyProxy(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const setting = await chrome.proxy.settings.get({incognito:false});
   if (setting.levelOfControl === "controlled_by_other_extensions" || setting.levelOfControl === "not_controllable") {
     throw new Error("Another extension or browser policy controls Chrome proxy settings.");
   }
-  const data = pacScript(proxy, sites, mode, includeIpCheck);
+  const data = pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap);
   await chrome.proxy.settings.set({value:{mode:"pac_script", pacScript:{data:data}}, scope:"regular"});
 }
 async function connect(proxy, sites, mode) {
@@ -72,7 +72,7 @@ async function connect(proxy, sites, mode) {
   }
   const cleanSites = normalizeSites(sites);
   const cleanMode = mode === "exclude" ? "exclude" : "include";
-  await applyProxy(proxy, cleanSites, cleanMode, false);
+  await applyProxy(proxy, cleanSites, cleanMode, false, stored.siteProxyMap || {});
   await chrome.storage.local.set({active:true, selectedProxy:proxy, sites:cleanSites, mode:cleanMode, connectedAt:Date.now()});
   chrome.alarms.create(ALARM_NAME, {periodInMinutes:1});
   return {ok:true, sites:cleanSites, mode:cleanMode};
@@ -98,8 +98,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const mode = message.mode === "exclude" ? "exclude" : "include";
         const stored = await getSettings();
         await chrome.storage.local.set({sites:sites, mode:mode});
-        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false);
+        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false, stored.siteProxyMap || {});
         sendResponse({ok:true, sites:sites, mode:mode, active:Boolean(stored.active)});
+      } else if (message && message.type === "SAVE_SITE_PROXY_MAP") {
+        const stored = await getSettings();
+        const allowed = new Set(normalizeSites(stored.sites || []));
+        const map = {};
+        if (message.map && typeof message.map === "object") {
+          for (const [host, preferred] of Object.entries(message.map)) {
+            if (!allowed.has(host) || typeof preferred !== "string" || !preferred) continue;
+            try { proxyToPac(preferred); map[host] = preferred; } catch (_) {}
+          }
+        }
+        await chrome.storage.local.set({siteProxyMap:map});
+        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, map);
+        sendResponse({ok:true, map:map});
       } else if (message && message.type === "SAVE_HEALTHY_POOL") {
         const pool = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))].slice(0, 30) : [];
         await chrome.storage.local.set({healthyProxies:pool, autoRandomize:Boolean(message.autoRandomize)});
@@ -107,7 +120,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else if (message && message.type === "GET_STATE") {
         const stored = await getSettings();
         const setting = await chrome.proxy.settings.get({incognito:false});
-        sendResponse({active:Boolean(stored.active), selectedProxy:stored.selectedProxy || "", sites:stored.sites || [], mode:stored.mode || "include", connectedAt:stored.connectedAt || null, levelOfControl:setting.levelOfControl, healthyProxies:stored.healthyProxies || [], autoRandomize:Boolean(stored.autoRandomize)});
+        sendResponse({active:Boolean(stored.active), selectedProxy:stored.selectedProxy || "", sites:stored.sites || [], mode:stored.mode || "include", connectedAt:stored.connectedAt || null, levelOfControl:setting.levelOfControl, healthyProxies:stored.healthyProxies || [], autoRandomize:Boolean(stored.autoRandomize), siteProxyMap:stored.siteProxyMap || {}});
       } else if (message && message.type === "SET_TEMP_TEST") {
         const stored = await getSettings();
         const proxy = message.proxy;
@@ -122,7 +135,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (testState.testHadProxyConfig && testState.testPreviousProxyConfig) await chrome.proxy.settings.set({value:testState.testPreviousProxyConfig, scope:"regular"});
         else await chrome.proxy.settings.clear({scope:"regular"});
         await chrome.storage.local.remove(["testPreviousProxyConfig", "testHadProxyConfig"]);
-        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false);
+        if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
         sendResponse({ok:true});
       }
     } catch (error) {
@@ -144,7 +157,7 @@ chrome.runtime.onStartup.addListener(async () => {
   const randomProxy = stored.autoRandomize ? await chooseHealthyProxy() : null;
   const proxy = randomProxy || stored.selectedProxy;
   try {
-    await applyProxy(proxy, stored.sites || [], stored.mode || "include", false);
+    await applyProxy(proxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
     if (proxy !== stored.selectedProxy) await chrome.storage.local.set({selectedProxy:proxy, connectedAt:Date.now()});
   } catch (_) {}
 });
