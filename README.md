@@ -1,14 +1,17 @@
 # SiteTunnel
 
-A free, open-source Chrome Manifest V3 extension that routes requests for `pornhub.com` and `xvideos.com` (including subdomains) through a selected public proxy. Other hostnames are sent directly.
+A free, open-source Chrome Manifest V3 extension that lets you define your own domain list and choose how those domains are routed through a selected public proxy.
 
 ## Features
 
+- **Include mode (default):** only domains in your list and their subdomains use the selected proxy; all other hostnames connect directly.
+- **Exclude mode:** all hostnames use the selected proxy except domains in your list and their subdomains, which connect directly.
+- Add domains one per line; protocol prefixes and URL paths are normalized, and duplicate or invalid entries are ignored.
 - Loads a public Netherlands proxy list from [maximilianfeix/free-proxy-list](https://github.com/maximilianfeix/free-proxy-list).
 - Supports HTTP, HTTPS, SOCKS4, and SOCKS5 proxy entries where Chrome's PAC resolver supports them.
-- Connect, disconnect, refresh the list, and check the proxy's observed exit IP.
-- Saves the previous Chrome proxy configuration and attempts to restore it on disconnect.
-- No account, analytics, or tracking SDK.
+- Prominent connection status, selected proxy and active mode, save/apply rules, disconnect, refresh the list, and check the proxy's observed exit IP.
+- Saves site rules and attempts to restore the previous Chrome proxy configuration on disconnect.
+- No preset destination domains, account, analytics, or tracking SDK.
 
 ## Install locally
 
@@ -16,13 +19,14 @@ A free, open-source Chrome Manifest V3 extension that routes requests for `pornh
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Select **Load unpacked** and choose the extracted `SiteTunnel` folder.
-5. Click the extension icon, refresh the proxy list, select an endpoint, then click **Connect**.
+5. Click the extension icon, refresh the proxy list, enter your domains, choose Include or Exclude, and click **Save & apply rules**.
+6. Select a proxy and click **Connect proxy**.
 
 ## Privacy and limitations
 
-This is a browser proxy switcher, **not a VPN**. Public proxy operators are strangers and may log metadata, intercept unencrypted traffic, or be malicious. Use HTTPS destinations only; do not enter passwords or sensitive information while using a public proxy. The extension cannot guarantee that any listed proxy works, is actually located in the Netherlands, or is accepted by either target website.
+This is a browser proxy switcher, **not a VPN**. Public proxy operators are strangers and may log metadata, intercept unencrypted traffic, or be malicious. Use HTTPS destinations only; do not enter passwords or sensitive information while using a public proxy. The extension cannot guarantee that any listed proxy works or is actually located in the Netherlands.
 
-The PAC rules route only the two named domains and their subdomains through the selected proxy. Other hostnames, including third-party media/CDN domains, go direct unless explicitly added to the target list. Therefore, this does not guarantee that every request associated with those sites is proxied. It does not clear browser history or cookies. This initial version has not been independently security-audited or verified against live sessions.
+Rules match the exact domain and its subdomains. They do not automatically include third-party media, CDN, API, or other related domains; add those separately if you want them to follow the same routing rule. Proxy behavior and protocol support depend on Chrome and the selected endpoint. This does not clear browser history or cookies. It has not been independently security-audited or verified against live sessions.
 
 ## Sources
 
