@@ -38,7 +38,13 @@ function pacScript(proxy, sites, mode, includeIpCheck) {
 }
 
 async function getSettings() {
-  return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig"]);
+  return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize"]);
+}
+async function chooseHealthyProxy() {
+  const stored = await getSettings();
+  const pool = Array.isArray(stored.healthyProxies) ? stored.healthyProxies.filter(p => typeof p === "string") : [];
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 async function applyProxy(proxy, sites, mode, includeIpCheck) {
   const setting = await chrome.proxy.settings.get({incognito:false});
@@ -87,10 +93,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.set({sites:sites, mode:mode});
         if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false);
         sendResponse({ok:true, sites:sites, mode:mode, active:Boolean(stored.active)});
+      } else if (message && message.type === "SAVE_HEALTHY_POOL") {
+        const pool = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))].slice(0, 30) : [];
+        await chrome.storage.local.set({healthyProxies:pool, autoRandomize:Boolean(message.autoRandomize)});
+        sendResponse({ok:true, count:pool.length});
       } else if (message && message.type === "GET_STATE") {
         const stored = await getSettings();
         const setting = await chrome.proxy.settings.get({incognito:false});
-        sendResponse({active:Boolean(stored.active), selectedProxy:stored.selectedProxy || "", sites:stored.sites || [], mode:stored.mode || "include", connectedAt:stored.connectedAt || null, levelOfControl:setting.levelOfControl});
+        sendResponse({active:Boolean(stored.active), selectedProxy:stored.selectedProxy || "", sites:stored.sites || [], mode:stored.mode || "include", connectedAt:stored.connectedAt || null, levelOfControl:setting.levelOfControl, healthyProxies:stored.healthyProxies || [], autoRandomize:Boolean(stored.autoRandomize)});
       } else if (message && message.type === "SET_TEMP_TEST") {
         const stored = await getSettings();
         const proxy = stored.active ? stored.selectedProxy : message.proxy;
@@ -118,7 +128,11 @@ chrome.alarms.onAlarm.addListener(async alarm => {
 });
 chrome.runtime.onStartup.addListener(async () => {
   const stored = await getSettings();
-  if (stored.active && stored.selectedProxy) {
-    try { await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false); } catch (_) {}
-  }
+  if (!stored.active || !stored.selectedProxy) return;
+  const randomProxy = stored.autoRandomize ? await chooseHealthyProxy() : null;
+  const proxy = randomProxy || stored.selectedProxy;
+  try {
+    await applyProxy(proxy, stored.sites || [], stored.mode || "include", false);
+    if (proxy !== stored.selectedProxy) await chrome.storage.local.set({selectedProxy:proxy, connectedAt:Date.now()});
+  } catch (_) {}
 });
