@@ -56,7 +56,7 @@ internal static class Program
             "SocksPort 127.0.0.1:9150",
             "SocksPolicy accept 127.0.0.1",
             "SocksPolicy reject *",
-            "DataDirectory " + Path.Combine(StateDir, "Data").Replace("\\", "/"),
+            "DataDirectory \"" + Path.Combine(StateDir, "Data").Replace("\\", "/") + "\"",
             "Log notice stdout",
             "SafeLogging 1"
         }) + Environment.NewLine);
