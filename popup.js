@@ -2,7 +2,8 @@
 const COUNTRY_NAMES = {nl:"Netherlands",us:"United States",gb:"United Kingdom",de:"Germany",fr:"France",ca:"Canada",ch:"Switzerland",se:"Sweden",no:"Norway",fi:"Finland",dk:"Denmark",ie:"Ireland",pl:"Poland",cz:"Czechia",es:"Spain",it:"Italy",jp:"Japan",sg:"Singapore",au:"Australia"};
 const $ = id => document.getElementById(id);
 let proxies = [];
-let allCandidates = [];
+const TOR_PROXIES = ["socks5://127.0.0.1:9150", "socks5://127.0.0.1:9050"];
+let allCandidates = [...TOR_PROXIES];
 let proxyCountry = {};
 let savedSiteProxyMap = {};
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
@@ -48,21 +49,29 @@ function updateModeHelp() {
 function renderProxies() {
   const select = $("proxySelect");
   select.replaceChildren();
-  if (!proxies.length) {
-    const opt = document.createElement("option"); opt.textContent = "No proxies loaded"; select.append(opt);
-    select.disabled = true; $("connectBtn").disabled = true; $("checkBtn").disabled = true;
-    $("proxyDetails").textContent = "Refresh the list and try again.";
-    return;
+  const torGroup = document.createElement("optgroup"); torGroup.label = "Tor (requires Tor running locally)";
+  for (const proxy of TOR_PROXIES) {
+    const opt = document.createElement("option"); opt.value = proxy;
+    opt.textContent = proxy.endsWith(":9150") ? "Tor Browser · 127.0.0.1:9150" : "Tor service · 127.0.0.1:9050";
+    torGroup.append(opt);
   }
-  for (const proxy of proxies) {
-    const opt = document.createElement("option"); opt.value = proxy; opt.textContent = proxy; select.append(opt);
+  select.append(torGroup);
+  if (proxies.length) {
+    const publicGroup = document.createElement("optgroup"); publicGroup.label = "Public proxies";
+    for (const proxy of proxies) {
+      const opt = document.createElement("option"); opt.value = proxy; opt.textContent = proxy; publicGroup.append(opt);
+    }
+    select.append(publicGroup);
   }
   select.disabled = false; $("connectBtn").disabled = false; $("checkBtn").disabled = false;
   updateProxyDetails();
 }
 function updateProxyDetails() {
   const proxy = $("proxySelect").value;
-  $("proxyDetails").textContent = proxy ? proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed" : "No proxy selected";
+  const isTor = TOR_PROXIES.includes(proxy);
+  $("proxyDetails").textContent = !proxy ? "No proxy selected" : isTor
+    ? (proxy.endsWith(":9150") ? "Tor Browser SOCKS5 · Start Tor Browser first; keep it running." : "Local Tor SOCKS5 service · Requires a Tor daemon listening on port 9050.") + " SiteTunnel does not install or start Tor. Verify Tor is connected before browsing."
+    : proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed";
 }
 function renderConnection(state) {
   const active = Boolean(state && state.active);
