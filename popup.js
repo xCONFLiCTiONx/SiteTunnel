@@ -1,104 +1,184 @@
+
 const LIST_URL = "https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/nl.txt";
 const $ = id => document.getElementById(id);
 let proxies = [];
+const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
 
 function parseProxyLines(text) {
   const seen = new Set(), results = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const normalized = /^[a-z]+:\/\//i.test(line) ? line : `http://${line}`;
-    const match = /^(http|https|socks4|socks5):\/\/([^:/\s]+):(\d{1,5})$/i.exec(normalized);
-    if (!match) continue;
-    const port = Number(match[3]);
+    const normalized = /^[a-z]+:\/\//i.test(line) ? line : "http://" + line;
+    const m = /^(http|https|socks4|socks5):\/\/([^:/\s]+):(\d{1,5})$/i.exec(normalized);
+    if (!m) continue;
+    const port = Number(m[3]);
     if (port < 1 || port > 65535) continue;
-    const item = `${match[1].toLowerCase()}://${match[2]}:${port}`;
+    const item = m[1].toLowerCase() + "://" + m[2] + ":" + port;
     if (!seen.has(item)) { seen.add(item); results.push(item); }
   }
   return results;
 }
-function setMessage(text, kind = "") { $("message").textContent = text; $("message").className = `message ${kind}`; }
-function renderProxies() {
-  const select = $("proxySelect"); select.replaceChildren();
-  if (!proxies.length) {
-    const option = document.createElement("option"); option.textContent = "No proxies loaded"; select.append(option);
-    select.disabled = true; $("connectBtn").disabled = true; $("checkBtn").disabled = true;
-    $("proxyDetails").textContent = "Refresh the list and try again."; return;
+function parseSites() {
+  const parts = $("siteList").value.split(/[\n,;]+/);
+  const sites = [], seen = new Set();
+  for (let raw of parts) {
+    let host = raw.trim().toLowerCase();
+    if (!host || host.startsWith("#")) continue;
+    host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "");
+    if (!host || host.length > 253 || !host.includes(".")) continue;
+    if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host)) continue;
+    if (!seen.has(host)) { seen.add(host); sites.push(host); }
   }
-  for (const proxy of proxies) { const option = document.createElement("option"); option.value = proxy; option.textContent = proxy; select.append(option); }
-  select.disabled = false; $("connectBtn").disabled = false; $("checkBtn").disabled = false; updateProxyDetails();
+  return sites;
+}
+function mode() { return $("modeExclude").checked ? "exclude" : "include"; }
+function setMessage(message, kind) {
+  $("message").textContent = message;
+  $("message").className = "message" + (kind ? " " + kind : "");
+}
+function updateModeHelp() {
+  $("modeHelp").textContent = mode() === "include"
+    ? "Only sites in this list use the selected proxy. All other sites connect directly."
+    : "All sites use the selected proxy except sites in this list, which connect directly.";
+}
+function renderProxies() {
+  const select = $("proxySelect");
+  select.replaceChildren();
+  if (!proxies.length) {
+    const opt = document.createElement("option"); opt.textContent = "No proxies loaded"; select.append(opt);
+    select.disabled = true; $("connectBtn").disabled = true; $("checkBtn").disabled = true;
+    $("proxyDetails").textContent = "Refresh the list and try again.";
+    return;
+  }
+  for (const proxy of proxies) {
+    const opt = document.createElement("option"); opt.value = proxy; opt.textContent = proxy; select.append(opt);
+  }
+  select.disabled = false; $("connectBtn").disabled = false; $("checkBtn").disabled = false;
+  updateProxyDetails();
 }
 function updateProxyDetails() {
   const proxy = $("proxySelect").value;
-  $("proxyDetails").textContent = proxy ? `${proxy.split("://")[0].toUpperCase()} · Public endpoint · Availability is not guaranteed` : "No proxy selected";
+  $("proxyDetails").textContent = proxy ? proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed" : "No proxy selected";
+}
+function renderConnection(state) {
+  const active = Boolean(state && state.active);
+  const banner = $("connectionBanner");
+  banner.classList.toggle("connected", active);
+  banner.classList.toggle("disconnected", !active);
+  $("connectionIcon").textContent = active ? "✓" : "●";
+  $("connectionTitle").textContent = active ? "PROXY CONNECTED" : "Proxy disconnected";
+  const selectedMode = state && state.mode === "exclude" ? "Exclude list" : "Include list";
+  $("connectionDetail").textContent = active
+    ? (state.selectedProxy || "Proxy active") + " · " + selectedMode + " · " + ((state.sites || []).length) + " domains"
+    : "Your saved site rules are not active.";
+  $("statusPill").textContent = active ? "CONNECTED" : "DISCONNECTED";
+  $("statusPill").classList.toggle("on", active);
+  $("disconnectBtn").disabled = !active;
+  if (state && state.sites) {
+    $("siteList").value = state.sites.join("\n");
+    if (state.mode === "exclude") $("modeExclude").checked = true;
+    else $("modeInclude").checked = true;
+    updateModeHelp();
+  }
+  if (active && state.selectedProxy) {
+    const option = Array.from($("proxySelect").options).find(o => o.value === state.selectedProxy);
+    if (option) $("proxySelect").value = state.selectedProxy;
+    updateProxyDetails();
+  }
 }
 async function refreshList() {
-  $("refreshBtn").disabled = true; $("listStatus").textContent = "Fetching the current Netherlands list…";
+  $("refreshBtn").disabled = true;
+  $("listStatus").textContent = "Fetching the current Netherlands list…";
   try {
-    const response = await fetch(LIST_URL, { cache: "no-store" });
-    if (!response.ok) throw new Error(`List source returned HTTP ${response.status}`);
-    proxies = parseProxyLines(await response.text()); renderProxies();
-    $("listStatus").textContent = `${proxies.length} entries loaded from the public Netherlands list.`;
-    setMessage("Choose a proxy, then connect.");
+    const response = await fetch(LIST_URL, {cache:"no-store"});
+    if (!response.ok) throw new Error("List source returned HTTP " + response.status);
+    proxies = parseProxyLines(await response.text());
+    renderProxies();
+    $("listStatus").textContent = proxies.length + " entries loaded from the public Netherlands list.";
+    if (proxies.length) setMessage("Choose a proxy, then connect.");
   } catch (error) {
-    proxies = []; renderProxies(); $("listStatus").textContent = `Could not load list: ${error.message}`;
+    proxies = []; renderProxies();
+    $("listStatus").textContent = "Could not load list: " + error.message;
     setMessage("Proxy list unavailable. Check your connection and refresh.", "error");
   } finally { $("refreshBtn").disabled = false; }
 }
-const send = (type, extra = {}) => chrome.runtime.sendMessage({ type, ...extra });
 async function updateState() {
   try {
-    const state = await send("GET_STATE"), active = Boolean(state.active);
-    $("statusPill").textContent = active ? "ON" : "OFF"; $("statusPill").classList.toggle("on", active);
-    $("disconnectBtn").disabled = !active;
-    if (active && state.selectedProxy) {
-      $("listStatus").textContent = `Connected with ${state.selectedProxy}`;
-      const option = [...$("proxySelect").options].find(o => o.value === state.selectedProxy);
-      if (option) $("proxySelect").value = state.selectedProxy;
-      updateProxyDetails();
-    }
+    const state = await send("GET_STATE");
+    renderConnection(state);
     if (state.levelOfControl && !["controlled_by_this_extension", "controllable_by_this_extension"].includes(state.levelOfControl)) {
       setMessage("Another policy or extension controls Chrome's proxy settings.", "error");
     }
-  } catch {}
+  } catch (_) {}
 }
+$("modeInclude").addEventListener("change", updateModeHelp);
+$("modeExclude").addEventListener("change", updateModeHelp);
 $("proxySelect").addEventListener("change", updateProxyDetails);
 $("refreshBtn").addEventListener("click", refreshList);
-$("connectBtn").addEventListener("click", async () => {
-  const proxy = $("proxySelect").value; if (!proxy) return;
-  $("connectBtn").disabled = true; setMessage("Applying site-specific proxy rules…");
+$("clearSitesBtn").addEventListener("click", () => {
+  $("siteList").value = "";
+  $("siteStatus").textContent = "List cleared in the editor. Save & apply rules to commit it.";
+});
+$("saveSitesBtn").addEventListener("click", async () => {
+  const sites = parseSites(), selectedMode = mode();
   try {
-    const result = await send("CONNECT", { proxy });
-    if (result?.ok) { setMessage("Connected. Only the two target domains are routed through this proxy.", "success"); await updateState(); }
-    else setMessage(result?.error || "Could not apply proxy settings.", "error");
+    const result = await send("SAVE_RULES", {sites:sites, mode:selectedMode});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not save rules.");
+    $("siteList").value = sites.join("\n");
+    $("siteStatus").textContent = sites.length + " valid domains saved · " + (selectedMode === "include" ? "Include" : "Exclude") + " mode.";
+    setMessage(result.active ? "Rules saved and applied to the active proxy." : "Rules saved. Connect a proxy to activate them.", "success");
+    await updateState();
+  } catch (error) { setMessage(error.message || "Could not save rules.", "error"); }
+});
+$("connectBtn").addEventListener("click", async () => {
+  const proxy = $("proxySelect").value;
+  if (!proxy) return;
+  $("connectBtn").disabled = true;
+  setMessage("Applying your site rules…");
+  try {
+    const sites = parseSites(), selectedMode = mode();
+    const result = await send("CONNECT", {proxy:proxy, sites:sites, mode:selectedMode});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not apply proxy settings.");
+    $("siteList").value = result.sites.join("\n");
+    $("siteStatus").textContent = result.sites.length + " valid domains saved.";
+    setMessage("Connected. Your " + selectedMode + " rules are active.", "success");
+    await updateState();
   } catch (error) { setMessage(error.message || "Could not connect.", "error"); }
-  finally { $("connectBtn").disabled = false; }
+  finally { $("connectBtn").disabled = !proxies.length; }
 });
 $("disconnectBtn").addEventListener("click", async () => {
   try {
     const result = await send("DISCONNECT");
-    if (result?.ok) {
-      setMessage("Disconnected. Previous Chrome proxy settings restored.", "success");
-      $("statusPill").textContent = "OFF"; $("statusPill").classList.remove("on"); $("disconnectBtn").disabled = true;
-    } else setMessage(result?.error || "Could not disconnect.", "error");
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not disconnect.");
+    setMessage("Disconnected. Previous Chrome proxy settings restored.", "success");
+    await updateState();
   } catch (error) { setMessage(error.message || "Could not disconnect.", "error"); }
 });
 $("checkBtn").addEventListener("click", async () => {
-  const proxy = $("proxySelect").value; if (!proxy) return;
+  const proxy = $("proxySelect").value;
+  if (!proxy) return;
   $("checkBtn").disabled = true; $("ipResult").textContent = "Checking…";
   try {
-    const setup = await send("SET_TEMP_TEST", { proxy });
-    if (!setup?.ok) throw new Error(setup?.error || "Could not configure test route.");
-    const response = await fetch(`https://api.ipify.org/?sitetunnel=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`IP check returned HTTP ${response.status}`);
-    $("ipResult").textContent = `Observed exit IP: ${(await response.text()).trim()}`;
+    const setup = await send("SET_TEMP_TEST", {proxy:proxy});
+    if (!setup || !setup.ok) throw new Error(setup && setup.error ? setup.error : "Could not configure test route.");
+    const response = await fetch("https://api.ipify.org/?sitetunnel=" + Date.now(), {cache:"no-store"});
+    if (!response.ok) throw new Error("IP check returned HTTP " + response.status);
+    $("ipResult").textContent = "Observed exit IP: " + (await response.text()).trim();
     const restore = await send("RESTORE_TARGETS");
-    if (!restore?.ok) throw new Error(restore?.error || "Could not restore target-only rules.");
-    setMessage("Exit check complete; target-only routing restored.", "success");
+    if (!restore || !restore.ok) throw new Error(restore && restore.error ? restore.error : "Could not restore site rules.");
+    setMessage("Exit check complete; your site rules have been restored.", "success");
   } catch (error) {
-    try { await send("RESTORE_TARGETS"); } catch {}
-    $("ipResult").textContent = `Check failed: ${error.message}`;
-    setMessage("Proxy test failed. This endpoint may be offline or blocked.", "error");
-  } finally { $("checkBtn").disabled = false; }
+    try { await send("RESTORE_TARGETS"); } catch (_) {}
+    $("ipResult").textContent = "Check failed: " + error.message;
+    setMessage("Proxy test failed. The endpoint may be offline or blocked.", "error");
+  } finally { $("checkBtn").disabled = !proxies.length; }
 });
-(async () => { await refreshList(); await updateState(); })();
+(async function init() {
+  const saved = await chrome.storage.local.get(["sites", "mode"]);
+  if (Array.isArray(saved.sites)) $("siteList").value = saved.sites.join("\n");
+  if (saved.mode === "exclude") $("modeExclude").checked = true;
+  updateModeHelp();
+  await refreshList();
+  await updateState();
+})();
