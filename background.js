@@ -136,7 +136,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await nativeTorCommand("START_TOR");
         const stored = await getSettings();
         const sites = normalizeSites(message.sites ?? stored.sites ?? []);
-        const mode = message.mode === "exclude" ? "exclude" : (stored.mode === "exclude" ? "exclude" : "include");
+        // With no domain list, make the one-click Tor action useful by routing all Chrome sites through Tor.
+        const mode = sites.length === 0 ? "exclude" :
+          (message.mode === "exclude" ? "exclude" : (stored.mode === "exclude" ? "exclude" : "include"));
         sendResponse(await connect("socks5://127.0.0.1:9150", sites, mode));
       } else if (message && message.type === "TOR_STATUS") {
         sendResponse(await nativeTorCommand("TOR_STATUS"));
