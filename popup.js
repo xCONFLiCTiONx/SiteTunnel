@@ -249,6 +249,7 @@ $("autoRandomize").addEventListener("change", async () => {
   if (Array.isArray(saved.sites)) $("siteList").value = saved.sites.join("\n");
   if (saved.mode === "exclude") $("modeExclude").checked = true;
   updateModeHelp();
+  updateCurrentSiteButton();
   await refreshList();
   await updateState();
   const state = await send("GET_STATE");
