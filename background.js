@@ -29,9 +29,13 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const selectedMode = mode === "exclude" ? "exclude" : "include";
   const overrides = {};
   const sourceMap = siteProxyMap && typeof siteProxyMap === "object" ? siteProxyMap : {};
-  for (const host of normalized) {
-    if (!sourceMap[host] || typeof sourceMap[host] !== "string") continue;
-    try { overrides[host] = proxyToPac(sourceMap[host]); } catch (_) {}
+  // Normalize mapping keys independently from the site list so host spelling
+  // differences (scheme, path, trailing dot, wildcard prefix) cannot silently
+  // disable an otherwise saved per-domain override.
+  for (const [rawHost, preferredProxy] of Object.entries(sourceMap)) {
+    const hosts = normalizeSites([rawHost]);
+    if (!hosts.length || typeof preferredProxy !== "string" || !preferredProxy) continue;
+    try { overrides[hosts[0]] = proxyToPac(preferredProxy); } catch (_) {}
   }
   return "function FindProxyForURL(url, host) {\n" +
     "host = String(host || '').toLowerCase();\n" +
@@ -107,8 +111,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const allowed = new Set(normalizeSites(stored.sites || []));
         const map = {};
         if (message.map && typeof message.map === "object") {
-          for (const [host, preferred] of Object.entries(message.map)) {
-            if (!allowed.has(host) || typeof preferred !== "string" || !preferred) continue;
+          for (const [rawHost, preferred] of Object.entries(message.map)) {
+            const normalizedHosts = normalizeSites([rawHost]);
+            if (!normalizedHosts.length || typeof preferred !== "string" || !preferred) continue;
+            const host = normalizedHosts[0];
+            if (!allowed.has(host)) continue;
             try { proxyToPac(preferred); map[host] = preferred; } catch (_) {}
           }
         }
