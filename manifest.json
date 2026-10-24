@@ -9,7 +9,8 @@
     "alarms",
     "activeTab",
     "tabs",
-    "offscreen"
+    "offscreen",
+    "privacy"
   ],
   "host_permissions": [
     "https://raw.githubusercontent.com/*",

@@ -244,6 +244,24 @@ async function applyProxy(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   await chrome.proxy.settings.set({value:{mode:"pac_script", pacScript:{data:data}}, scope:"regular"});
 }
 
+async function enableWebRtcLeakProtection() {
+  try {
+    if (chrome.privacy && chrome.privacy.network && chrome.privacy.network.webRTCIPHandlingPolicy) {
+      await chrome.privacy.network.webRTCIPHandlingPolicy.set({
+        value: "disable_non_proxied_udp"
+      });
+    }
+  } catch (_) {}
+}
+
+async function disableWebRtcLeakProtection() {
+  try {
+    if (chrome.privacy && chrome.privacy.network && chrome.privacy.network.webRTCIPHandlingPolicy) {
+      await chrome.privacy.network.webRTCIPHandlingPolicy.clear({});
+    }
+  } catch (_) {}
+}
+
 async function connect(proxy, sites, mode) {
   const stored = await getSettings();
   const setting = await chrome.proxy.settings.get({incognito:false});
@@ -256,6 +274,7 @@ async function connect(proxy, sites, mode) {
   const cleanSites = normalizeSites(sites);
   const cleanMode = mode === "exclude" ? "exclude" : "include";
   await applyProxy(proxy, cleanSites, cleanMode, false, stored.siteProxyMap || {});
+  await enableWebRtcLeakProtection();
   await chrome.storage.local.set({active:true, selectedProxy:proxy, sites:cleanSites, mode:cleanMode, connectedAt:Date.now()});
   chrome.alarms.create(ALARM_NAME, {periodInMinutes:1});
   await updateAllTabIcons();
@@ -269,6 +288,7 @@ async function disconnect() {
   } else {
     await chrome.proxy.settings.clear({scope:"regular"});
   }
+  await disableWebRtcLeakProtection();
   await chrome.storage.local.set({active:false, previousProxyConfig:null, hasPreviousProxyConfig:false});
   await chrome.alarms.clear(ALARM_NAME);
   await updateAllTabIcons();
