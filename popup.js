@@ -100,8 +100,8 @@ function setMessage(message, kind) {
 }
 function updateModeHelp() {
   $("modeHelp").textContent = mode() === "include"
-    ? "All sites use the selected proxy except sites in this list, which connect directly."
-    : "All sites use the selected proxy except sites in this list, which connect directly.";
+    ? "SAFE DEFAULT: only domains in this list use the proxy. Every other site connects directly. An empty list sends no website traffic through the proxy."
+    : "EXCLUDE mode sends all sites through the proxy except domains in this list. Use only if you explicitly want a broad proxy route.";
 }
 
 $("removeProxyBtn").addEventListener("click", async () => {
@@ -752,7 +752,8 @@ $("autoRandomize").addEventListener("change", async () => {
 (async function init() {
   const saved = await chrome.storage.local.get(["sites", "mode"]);
   if (Array.isArray(saved.sites)) $("siteList").value = saved.sites.join("\n");
-  if (saved.mode === "exclude" || !saved.mode) $("modeExclude").checked = true;
+  if (saved.mode === "exclude") $("modeExclude").checked = true;
+  else $("modeInclude").checked = true;
   updateModeHelp();
   updateCurrentSiteButton();
   renderSiteProxyMappings();
