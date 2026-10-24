@@ -5,6 +5,8 @@ body{width:390px;margin:0;background:var(--bg);color:var(--text);font:13px/1.45 
 main{padding:14px}
 header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .mark{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#263b5e;color:#d8e4ff;font-weight:850;letter-spacing:-1px}
+.mark svg{display:block;width:24px;height:24px}
+.connectionIcon svg{display:block;width:18px;height:18px}
 h1{margin:0;font-size:18px;letter-spacing:-.4px}
 h2{margin:0;font-size:13px;font-weight:750}
 p{margin:6px 0 0}

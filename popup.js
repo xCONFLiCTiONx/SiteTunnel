@@ -7,6 +7,55 @@ let proxyCountry = {};
 let savedSiteProxyMap = {};
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
 
+// SVG Icons (viewBox="0 0 16 16")
+const ICON_PATH_DEFAULT = "M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46";
+const ICON_PATH_CONNECTED = "M10 8h.5a.5.5 0 1 0 0-1H10V5.5A2.5 2.5 0 0 0 9.5 4h1a.5.5 0 1 0 0-1h-1a.5.5 0 0 0-.5.5v.01A2.5 2.5 0 0 0 7.5 3H7v-.5A1.5 1.5 0 0 1 8.5 1h3A1.5 1.5 0 0 1 13 2.5v6c0 .83-.67 1.5-1.5 1.5H10zm4 .41.97 2.93a.5.5 0 0 1-.07.45.5.5 0 0 1-.4.21h-3.25l-.33-.97V11h.58A2.5 2.5 0 0 0 14 8.5zm-4 3 .98 2.93a.5.5 0 0 1-.07.45.5.5 0 0 1-.4.21h-9a.5.5 0 0 1-.5-.42 1 1 0 0 1 .02-.24L2 11.42v.08A2.5 2.5 0 0 0 4.5 14h3a2.5 2.5 0 0 0 2.5-2.5zM7.5 13h-3A1.5 1.5 0 0 1 3 11.5v-6A1.5 1.5 0 0 1 4.5 4h3A1.5 1.5 0 0 1 9 5.5v6c0 .83-.67 1.5-1.5 1.5m-2-7a.5.5 0 1 0 0 1h1a.5.5 0 1 0 0-1zm0 4a.5.5 0 1 0 0 1h1a.5.5 0 1 0 0-1z";
+
+function getSvgMarkup(isConnected, color) {
+  const path = isConnected ? ICON_PATH_CONNECTED : ICON_PATH_DEFAULT;
+  const fillColor = color || "currentColor";
+  return '<svg width="100%" height="100%" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="' + fillColor + '" d="' + path + '"/></svg>';
+}
+
+function syncThemeIcon() {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  chrome.runtime.sendMessage({ type: 'UPDATE_THEME_ICON', isDarkMode: isDark }).catch(() => {});
+  updatePageFavicon(isDark);
+  updateBrandIcon();
+}
+
+function updatePageFavicon(isDark) {
+  const isDarkMode = typeof isDark === 'boolean' ? isDark : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const iconColor = isDarkMode ? '%23FFFFFF' : '%23000000';
+  const svgString = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="' + iconColor + '" d="' + ICON_PATH_DEFAULT + '"/></svg>';
+  const dataUri = 'data:image/svg+xml;utf8,' + svgString;
+  let link = document.querySelector("link[rel*='icon']");
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = dataUri;
+}
+
+let lastTabIsConnected = false;
+function updateBrandIcon(isConnected) {
+  if (typeof isConnected === 'boolean') {
+    lastTabIsConnected = isConnected;
+  }
+  const brandEl = $("brandIcon");
+  if (brandEl) {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const color = isDark ? '#FFFFFF' : '#000000';
+    brandEl.innerHTML = getSvgMarkup(lastTabIsConnected, color);
+  }
+}
+
+try {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncThemeIcon);
+  syncThemeIcon();
+} catch (_) {}
+
 function parseProxyLines(text) {
   const seen = new Set(), results = [];
   for (const raw of text.split(/\r?\n/)) {
@@ -67,7 +116,7 @@ function renderConnection(state) {
   const banner = $("connectionBanner");
   banner.classList.toggle("connected", active);
   banner.classList.toggle("disconnected", !active);
-  $("connectionIcon").textContent = active ? "✓" : "●";
+  $("connectionIcon").innerHTML = getSvgMarkup(active, "currentColor");
   $("connectionTitle").textContent = active ? "PROXY CONNECTED" : "Proxy disconnected";
   const selectedMode = state && state.mode === "exclude" ? "Exclude list" : "Include list";
   $("connectionDetail").textContent = active
@@ -120,6 +169,7 @@ async function updateTabRoute(state) {
     const url = tabs && tabs[0] ? tabs[0].url : "";
     const parsed = new URL(url || "");
     if (!active) {
+      updateBrandIcon(false);
       $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
       $("connectionDetail").textContent = "SiteTunnel is disconnected; saved routes are not active.";
       return;
@@ -149,6 +199,8 @@ async function updateTabRoute(state) {
       const usesDefault = state.mode === "exclude" ? !matched : matched;
       route = usesDefault ? "DEFAULT · " + (state.selectedProxy || "proxy not selected") : "DIRECT · no proxy";
     }
+    const tabUsesProxy = Boolean(mappedProxy || (state.mode === "exclude" ? !matched : matched));
+    updateBrandIcon(tabUsesProxy);
     $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
     $("connectionDetail").textContent = host + " → " + route;
   } catch (_) {
@@ -262,19 +314,6 @@ $("connectBtn").addEventListener("click", async () => {
     await updateState();
   } catch (error) { setMessage(error.message || "Could not connect.", "error"); }
   finally { $("connectBtn").disabled = !proxies.length; }
-});
-$("torConnectBtn").addEventListener("click", async () => {
-  const button = $("torConnectBtn");
-  button.disabled = true;
-  setMessage("Starting bundled Tor and applying your site rules…");
-  try {
-    const result = await send("CONNECT_TOR", {sites:parseSites(), mode:mode()});
-    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not connect to Tor.");
-    setMessage("Tor proxy configured. Confirm the exit IP with Route check before relying on it.", "success");
-    await updateState();
-  } catch (error) {
-    setMessage(error.message || "Could not start Tor.", "error");
-  } finally { button.disabled = false; }
 });
 $("disconnectBtn").addEventListener("click", async () => {
   try {

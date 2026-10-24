@@ -1,6 +1,167 @@
 
 const ALARM_NAME = "sitetunnel-reapply";
 
+// SVG Icon Paths (viewBox="0 0 16 16")
+const ICON_PATH_DEFAULT = "M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46";
+const ICON_PATH_CONNECTED = "M10 8h.5a.5.5 0 1 0 0-1H10V5.5A2.5 2.5 0 0 0 9.5 4h1a.5.5 0 1 0 0-1h-1a.5.5 0 0 0-.5.5v.01A2.5 2.5 0 0 0 7.5 3H7v-.5A1.5 1.5 0 0 1 8.5 1h3A1.5 1.5 0 0 1 13 2.5v6c0 .83-.67 1.5-1.5 1.5H10zm4 .41.97 2.93a.5.5 0 0 1-.07.45.5.5 0 0 1-.4.21h-3.25l-.33-.97V11h.58A2.5 2.5 0 0 0 14 8.5zm-4 3 .98 2.93a.5.5 0 0 1-.07.45.5.5 0 0 1-.4.21h-9a.5.5 0 0 1-.5-.42 1 1 0 0 1 .02-.24L2 11.42v.08A2.5 2.5 0 0 0 4.5 14h3a2.5 2.5 0 0 0 2.5-2.5zM7.5 13h-3A1.5 1.5 0 0 1 3 11.5v-6A1.5 1.5 0 0 1 4.5 4h3A1.5 1.5 0 0 1 9 5.5v6c0 .83-.67 1.5-1.5 1.5m-2-7a.5.5 0 1 0 0 1h1a.5.5 0 1 0 0-1zm0 4a.5.5 0 1 0 0 1h1a.5.5 0 1 0 0-1z";
+
+let currentSystemIsDark = null;
+let lastRenderedThemeDark = null;
+const imageBitmapCache = {}; // key: `${isConnected ? 'conn' : 'def'}_${isDark ? 'dark' : 'light'}` -> { [size]: ImageData }
+
+function getRenderedImageData(isConnected, isDark) {
+  const cacheKey = (isConnected ? "conn" : "def") + "_" + (isDark ? "dark" : "light");
+  if (imageBitmapCache[cacheKey]) {
+    return imageBitmapCache[cacheKey];
+  }
+  const pathString = isConnected ? ICON_PATH_CONNECTED : ICON_PATH_DEFAULT;
+  const iconColor = isDark ? "#FFFFFF" : "#000000";
+  const result = {};
+
+  for (const size of [16, 32, 48]) {
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = iconColor;
+    ctx.save();
+    // Path coordinates are designed on a 16x16 grid
+    ctx.scale(size / 16, size / 16);
+    const p = new Path2D(pathString);
+    ctx.fill(p);
+    ctx.restore();
+    result[size] = ctx.getImageData(0, 0, size, size);
+  }
+
+  imageBitmapCache[cacheKey] = result;
+  return result;
+}
+
+function normalizeHost(value) {
+  let host = String(value || "").trim().toLowerCase();
+  host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
+  return host;
+}
+
+function hostMatches(host, domain) {
+  return host === domain || host.endsWith("." + domain);
+}
+
+function getTabProxyRoute(tabUrl, settings) {
+  if (!settings || !settings.active || !settings.selectedProxy) {
+    return { isConnected: false, proxy: null, title: "Disconnected" };
+  }
+  if (!tabUrl) {
+    return { isConnected: false, proxy: null, title: "Disconnected" };
+  }
+  let parsed;
+  try { parsed = new URL(tabUrl); } catch (_) {
+    return { isConnected: false, proxy: null, title: "Disconnected" };
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) {
+    return { isConnected: false, proxy: null, title: "Disconnected" };
+  }
+  const host = normalizeHost(parsed.hostname);
+  if (!host) {
+    return { isConnected: false, proxy: null, title: "Disconnected" };
+  }
+
+  // Check per-domain proxy override mappings
+  const map = settings.siteProxyMap && typeof settings.siteProxyMap === "object" ? settings.siteProxyMap : {};
+  let mappedHost = "";
+  let mappedProxy = "";
+  for (const [rawDomain, preferredProxy] of Object.entries(map)) {
+    const domain = normalizeHost(rawDomain);
+    if (domain && typeof preferredProxy === "string" && preferredProxy && hostMatches(host, domain) && domain.length > mappedHost.length) {
+      mappedHost = domain;
+      mappedProxy = preferredProxy;
+    }
+  }
+
+  if (mappedProxy) {
+    return { isConnected: true, proxy: mappedProxy, title: "Connected: " + mappedProxy };
+  }
+
+  const sites = Array.isArray(settings.sites) ? settings.sites.map(normalizeHost).filter(Boolean) : [];
+  const matched = sites.some(domain => hostMatches(host, domain));
+  const usesProxy = settings.mode === "exclude" ? !matched : matched;
+  if (usesProxy) {
+    return { isConnected: true, proxy: settings.selectedProxy, title: "Connected: " + settings.selectedProxy };
+  }
+  return { isConnected: false, proxy: null, title: "Disconnected" };
+}
+
+function isTabUsingProxy(tabUrl, settings) {
+  return getTabProxyRoute(tabUrl, settings).isConnected;
+}
+
+async function updateTabActionIcon(tabId, tabUrl, settings, isDark) {
+  if (!chrome.action) return;
+  const route = getTabProxyRoute(tabUrl, settings);
+  const imageDataMap = getRenderedImageData(route.isConnected, isDark);
+  try {
+    if (chrome.action.setIcon) {
+      if (tabId != null) {
+        await chrome.action.setIcon({ tabId: tabId, imageData: imageDataMap });
+      } else {
+        await chrome.action.setIcon({ imageData: imageDataMap });
+      }
+    }
+  } catch (_) {}
+  try {
+    if (chrome.action.setTitle) {
+      if (tabId != null) {
+        await chrome.action.setTitle({ tabId: tabId, title: route.title });
+      } else {
+        await chrome.action.setTitle({ title: route.title });
+      }
+    }
+  } catch (_) {}
+}
+
+async function updateAllTabIcons(forceDark) {
+  try {
+    const stored = await getSettings();
+    let isDark = forceDark;
+    if (typeof isDark !== "boolean") {
+      if (currentSystemIsDark !== null) {
+        isDark = currentSystemIsDark;
+      } else {
+        const storedTheme = await chrome.storage.local.get(["last_known_is_dark"]);
+        if (storedTheme && typeof storedTheme.last_known_is_dark === "boolean") {
+          isDark = storedTheme.last_known_is_dark;
+        } else {
+          isDark = true; // Fallback default
+        }
+      }
+    }
+    currentSystemIsDark = isDark;
+    lastRenderedThemeDark = isDark;
+
+    // Apply default global icon & tooltip
+    if (chrome.action) {
+      if (chrome.action.setIcon) {
+        const defaultGlobalData = getRenderedImageData(false, isDark);
+        await chrome.action.setIcon({ imageData: defaultGlobalData }).catch(() => {});
+      }
+      if (chrome.action.setTitle) {
+        await chrome.action.setTitle({ title: "Disconnected" }).catch(() => {});
+      }
+    }
+
+    // Update per-tab icons for all active tabs across windows
+    if (chrome.tabs && chrome.tabs.query) {
+      const tabs = await chrome.tabs.query({});
+      for (const tab of tabs) {
+        if (tab && tab.id) {
+          await updateTabActionIcon(tab.id, tab.url, stored, isDark);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("SiteTunnel: Error updating tab icons:", err);
+  }
+}
+
 function normalizeSites(sites) {
   const input = Array.isArray(sites) ? sites : [];
   const out = [];
@@ -48,35 +209,6 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
     "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\n}";
 }
-async function nativeTorCommand(command) {
-  return await new Promise((resolve, reject) => {
-    let settled = false;
-    let port;
-    try { port = chrome.runtime.connectNative("com.xconflictionx.sitetunnel"); }
-    catch (error) { reject(new Error("SiteTunnel Windows helper is not installed. Run the SiteTunnel Windows installer.")); return; }
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try { port.disconnect(); } catch (_) {}
-      reject(new Error("The SiteTunnel Windows helper did not respond in time."));
-    }, 35000);
-    port.onMessage.addListener(message => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      try { port.disconnect(); } catch (_) {}
-      if (message && message.ok) resolve(message);
-      else reject(new Error(message && message.error ? message.error : "The Tor helper failed."));
-    });
-    port.onDisconnect.addListener(() => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      reject(new Error(chrome.runtime.lastError?.message || "Could not connect to the SiteTunnel Windows helper. Re-run the installer."));
-    });
-    port.postMessage({command});
-  });
-}
 async function getSettings() {
   return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize", "siteProxyMap"]);
 }
@@ -108,6 +240,7 @@ async function connect(proxy, sites, mode) {
   await applyProxy(proxy, cleanSites, cleanMode, false, stored.siteProxyMap || {});
   await chrome.storage.local.set({active:true, selectedProxy:proxy, sites:cleanSites, mode:cleanMode, connectedAt:Date.now()});
   chrome.alarms.create(ALARM_NAME, {periodInMinutes:1});
+  await updateAllTabIcons();
   return {ok:true, sites:cleanSites, mode:cleanMode};
 }
 async function disconnect() {
@@ -119,29 +252,82 @@ async function disconnect() {
   }
   await chrome.storage.local.set({active:false, previousProxyConfig:null, hasPreviousProxyConfig:false});
   await chrome.alarms.clear(ALARM_NAME);
+  await updateAllTabIcons();
   return {ok:true};
 }
+
+// Offscreen Document Detection for Theme/Color-Scheme
+let creatingOffscreenPromise = null;
+async function setupOffscreenDocument() {
+  try {
+    if (!chrome.offscreen) return;
+    if (chrome.offscreen.hasDocument) {
+      if (await chrome.offscreen.hasDocument()) return;
+    } else if (chrome.runtime.getContexts) {
+      const contexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+        documentUrls: [chrome.runtime.getURL('offscreen.html')]
+      });
+      if (contexts && contexts.length > 0) return;
+    }
+
+    if (creatingOffscreenPromise) {
+      await creatingOffscreenPromise;
+      return;
+    }
+
+    creatingOffscreenPromise = chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['MATCH_MEDIA'],
+      justification: 'Detect system dark or light mode to update toolbar icon'
+    });
+    await creatingOffscreenPromise;
+  } catch (err) {
+    if (!String(err).includes('already exists')) {
+      console.warn('SiteTunnel: Offscreen document error:', err);
+    }
+  } finally {
+    creatingOffscreenPromise = null;
+  }
+}
+
+// Tab navigation & activation listeners to maintain per-tab icon accuracy
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === "complete" || changeInfo.url) {
+    const stored = await getSettings();
+    await updateTabActionIcon(tabId, tab.url, stored, currentSystemIsDark ?? true);
+  }
+});
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    if (tab) {
+      const stored = await getSettings();
+      await updateTabActionIcon(tab.id, tab.url, stored, currentSystemIsDark ?? true);
+    }
+  } catch (_) {}
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
-      if (message && message.type === "CONNECT") sendResponse(await connect(message.proxy, message.sites, message.mode));
-      else if (message && message.type === "DISCONNECT") {
-        const stored = await getSettings();
-        const result = await disconnect();
-        if (stored.selectedProxy === "socks5://127.0.0.1:9150") {
-          try { await nativeTorCommand("STOP_TOR"); } catch (_) {}
+      if (message && (message.type === "THEME_CHANGED" || message.type === "UPDATE_THEME_ICON")) {
+        if (typeof message.isDarkMode === "boolean") {
+          currentSystemIsDark = message.isDarkMode;
+          try { chrome.storage.local.set({ last_known_is_dark: message.isDarkMode }); } catch (_) {}
+          await updateAllTabIcons(message.isDarkMode);
         }
+        sendResponse({ success: true });
+        return;
+      }
+      if (message && message.type === "CONNECT") {
+        const res = await connect(message.proxy, message.sites, message.mode);
+        sendResponse(res);
+      }
+      else if (message && message.type === "DISCONNECT") {
+        const result = await disconnect();
         sendResponse(result);
-      } else if (message && message.type === "CONNECT_TOR") {
-        await nativeTorCommand("START_TOR");
-        const stored = await getSettings();
-        const sites = normalizeSites(message.sites ?? stored.sites ?? []);
-        // With no domain list, make the one-click Tor action useful by routing all Chrome sites through Tor.
-        const mode = sites.length === 0 ? "exclude" :
-          (message.mode === "exclude" ? "exclude" : (stored.mode === "exclude" ? "exclude" : "include"));
-        sendResponse(await connect("socks5://127.0.0.1:9150", sites, mode));
-      } else if (message && message.type === "TOR_STATUS") {
-        sendResponse(await nativeTorCommand("TOR_STATUS"));
       }
       else if (message && message.type === "SAVE_RULES") {
         const sites = normalizeSites(message.sites);
@@ -156,6 +342,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         await chrome.storage.local.set({sites:sites, mode:mode, siteProxyMap:siteProxyMap});
         if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, sites, mode, false, siteProxyMap);
+        await updateAllTabIcons();
         sendResponse({ok:true, sites:sites, mode:mode, active:Boolean(stored.active)});
       } else if (message && message.type === "SAVE_SITE_PROXY_MAP") {
         const stored = await getSettings();
@@ -172,6 +359,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         await chrome.storage.local.set({siteProxyMap:map});
         if (stored.active && stored.selectedProxy) await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, map);
+        await updateAllTabIcons();
         sendResponse({ok:true, map:map});
       } else if (message && message.type === "SAVE_HEALTHY_POOL") {
         const pool = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))].slice(0, 30) : [];
@@ -204,23 +392,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
+
 chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name !== ALARM_NAME) return;
   const stored = await getSettings();
   if (stored.active && stored.selectedProxy) {
     try {
-      if (stored.selectedProxy === "socks5://127.0.0.1:9150") await nativeTorCommand("START_TOR");
       await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
     } catch (_) {}
   }
 });
+
+// Initialization
+try {
+  chrome.storage.local.get(["last_known_is_dark"], (res) => {
+    if (res && typeof res.last_known_is_dark === "boolean") {
+      currentSystemIsDark = res.last_known_is_dark;
+      updateAllTabIcons(res.last_known_is_dark);
+    } else {
+      updateAllTabIcons(true);
+    }
+    setupOffscreenDocument();
+  });
+} catch (_) {
+  setupOffscreenDocument();
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  setupOffscreenDocument();
+  updateAllTabIcons();
+});
+
 chrome.runtime.onStartup.addListener(async () => {
+  setupOffscreenDocument();
+  updateAllTabIcons();
   const stored = await getSettings();
   if (!stored.active || !stored.selectedProxy) return;
   const randomProxy = stored.autoRandomize ? await chooseHealthyProxy() : null;
   const proxy = randomProxy || stored.selectedProxy;
   try {
-    if (proxy === "socks5://127.0.0.1:9150") await nativeTorCommand("START_TOR");
     await applyProxy(proxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
     if (proxy !== stored.selectedProxy) await chrome.storage.local.set({selectedProxy:proxy, connectedAt:Date.now()});
   } catch (_) {}
