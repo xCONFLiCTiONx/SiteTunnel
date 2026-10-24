@@ -102,6 +102,12 @@
     <div style="margin-top: 10px;">
       <button id="buildPoolBtn" class="secondary" style="width: 100%;">Fetch, test &amp; build verified list</button>
     </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border, #ddd);">
+      <label for="customProxyInput">Add your own proxy</label>
+      <input id="customProxyInput" type="text" spellcheck="false" autocomplete="off" placeholder="host:port or http://host:port">
+      <button id="customProxyBtn" class="secondary" style="width:100%;margin-top:8px;">Add custom proxy</button>
+      <p class="small muted">Supports http, https, socks4 and socks5. Adding saves it to your list; use “Check proxy exit IP” to verify the real browser connection.</p>
+    </div>
     <button id="testAllProxiesBtn" class="primary" style="width:100%;margin-top:8px;">Test ALL proxies in background</button>
     <p id="poolStatus" class="small muted">List updates automatically once daily, or whenever you build it manually here.</p>
     <p id="lastTestedInfo" class="small muted"></p>
