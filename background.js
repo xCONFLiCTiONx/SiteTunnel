@@ -644,6 +644,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const pool = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))] : [];
         await chrome.storage.local.set({healthyProxies:pool, autoRandomize:Boolean(message.autoRandomize)});
         sendResponse({ok:true, count:pool.length});
+      } else if (message && message.type === "ADD_VERIFIED_PROXY") {
+        const proxy = typeof message.proxy === "string" ? message.proxy.trim() : "";
+        if (!/^(https?|socks4|socks5):\/\/[^:/\s]+:\d{1,5}$/i.test(proxy)) throw new Error("Enter a valid proxy as host:port or scheme://host:port.");
+        const port = Number(proxy.match(/:(\d{1,5})$/)?.[1]);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Proxy port must be between 1 and 65535.");
+        const stored = await chrome.storage.local.get(["verifiedProxies","healthyProxies"]);
+        const verified = [...new Set([...(Array.isArray(stored.verifiedProxies) ? stored.verifiedProxies : []), proxy])];
+        const healthy = [...new Set([...(Array.isArray(stored.healthyProxies) ? stored.healthyProxies : []), proxy])];
+        await chrome.storage.local.set({verifiedProxies:verified,healthyProxies:healthy});
+        sendResponse({ok:true,count:verified.length,proxies:verified});
       } else if (message && message.type === "SAVE_VERIFIED_PROXIES") {
         const verified = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))] : [];
         await chrome.storage.local.set({
