@@ -318,7 +318,7 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
 
     // Step 1: Render / fetch actual HTML content from Cloudflare CDN trace with 1s hard limit
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const start = Date.now();
     let verifiedIp = null;
 
@@ -344,7 +344,7 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
 
     if (!verifiedIp) {
       const fallbackController = new AbortController();
-      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 8000);
+      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 5000);
       try {
         const fallback = await fetch("https://api.ipify.org/?sitetunnel_bg=" + Date.now(), {
           cache: "no-store",
