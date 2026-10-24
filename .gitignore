@@ -1,0 +1,4 @@
+windows/dist/
+windows/.extension-key.xml
+windows/**/bin/
+windows/**/obj/

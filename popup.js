@@ -48,21 +48,19 @@ function updateModeHelp() {
 function renderProxies() {
   const select = $("proxySelect");
   select.replaceChildren();
-  if (!proxies.length) {
-    const opt = document.createElement("option"); opt.textContent = "No proxies loaded"; select.append(opt);
-    select.disabled = true; $("connectBtn").disabled = true; $("checkBtn").disabled = true;
-    $("proxyDetails").textContent = "Refresh the list and try again.";
-    return;
-  }
-  for (const proxy of proxies) {
-    const opt = document.createElement("option"); opt.value = proxy; opt.textContent = proxy; select.append(opt);
+  if (proxies.length) {
+    const publicGroup = document.createElement("optgroup"); publicGroup.label = "Public proxies";
+    for (const proxy of proxies) {
+      const opt = document.createElement("option"); opt.value = proxy; opt.textContent = proxy; publicGroup.append(opt);
+    }
+    select.append(publicGroup);
   }
   select.disabled = false; $("connectBtn").disabled = false; $("checkBtn").disabled = false;
   updateProxyDetails();
 }
 function updateProxyDetails() {
   const proxy = $("proxySelect").value;
-  $("proxyDetails").textContent = proxy ? proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed" : "No proxy selected";
+  $("proxyDetails").textContent = !proxy ? "No proxy selected" : proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed";
 }
 function renderConnection(state) {
   const active = Boolean(state && state.active);
@@ -107,10 +105,64 @@ async function refreshList() {
   } catch (error) { proxies = []; renderProxies(); $("listStatus").textContent = "Could not load country list: " + error.message; setMessage("Country proxy list unavailable.", "error"); }
   finally { $("refreshBtn").disabled = false; $("loadCountryBtn").disabled = false; }
 }
+function normalizeHost(value) {
+  let host = String(value || "").trim().toLowerCase();
+  host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
+  return host;
+}
+function hostMatches(host, domain) {
+  return host === domain || host.endsWith("." + domain);
+}
+async function updateTabRoute(state) {
+  const active = Boolean(state && state.active);
+  try {
+    const tabs = await chrome.tabs.query({active:true, currentWindow:true});
+    const url = tabs && tabs[0] ? tabs[0].url : "";
+    const parsed = new URL(url || "");
+    if (!active) {
+      $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+      $("connectionDetail").textContent = "SiteTunnel is disconnected; saved routes are not active.";
+      return;
+    }
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) {
+      $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+      $("connectionDetail").textContent = "This browser page does not support site routing details.";
+      return;
+    }
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const map = state.siteProxyMap && typeof state.siteProxyMap === "object" ? state.siteProxyMap : {};
+    let mappedHost = "";
+    let mappedProxy = "";
+    for (const [rawDomain, proxy] of Object.entries(map)) {
+      const domain = normalizeHost(rawDomain);
+      if (domain && typeof proxy === "string" && proxy && hostMatches(host, domain) && domain.length > mappedHost.length) {
+        mappedHost = domain;
+        mappedProxy = proxy;
+      }
+    }
+    let route = "";
+    if (mappedProxy) {
+      route = "MAPPED · " + mappedProxy;
+    } else {
+      const sites = Array.isArray(state.sites) ? state.sites.map(normalizeHost).filter(Boolean) : [];
+      const matched = sites.some(domain => hostMatches(host, domain));
+      const usesDefault = state.mode === "exclude" ? !matched : matched;
+      route = usesDefault ? "DEFAULT · " + (state.selectedProxy || "proxy not selected") : "DIRECT · no proxy";
+    }
+    $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+    $("connectionDetail").textContent = host + " → " + route;
+  } catch (_) {
+    $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
+    $("connectionDetail").textContent = active
+      ? "Could not determine this tab's configured route."
+      : "SiteTunnel is disconnected; saved routes are not active.";
+  }
+}
 async function updateState() {
   try {
     const state = await send("GET_STATE");
     renderConnection(state);
+    await updateTabRoute(state);
     if (state.levelOfControl && !["controlled_by_this_extension", "controllable_by_this_extension"].includes(state.levelOfControl)) {
       setMessage("Another policy or extension controls Chrome's proxy settings.", "error");
     }
@@ -211,6 +263,19 @@ $("connectBtn").addEventListener("click", async () => {
   } catch (error) { setMessage(error.message || "Could not connect.", "error"); }
   finally { $("connectBtn").disabled = !proxies.length; }
 });
+$("torConnectBtn").addEventListener("click", async () => {
+  const button = $("torConnectBtn");
+  button.disabled = true;
+  setMessage("Starting bundled Tor and applying your site rules…");
+  try {
+    const result = await send("CONNECT_TOR", {sites:parseSites(), mode:mode()});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not connect to Tor.");
+    setMessage("Tor proxy configured. Confirm the exit IP with Route check before relying on it.", "success");
+    await updateState();
+  } catch (error) {
+    setMessage(error.message || "Could not start Tor.", "error");
+  } finally { button.disabled = false; }
+});
 $("disconnectBtn").addEventListener("click", async () => {
   try {
     const result = await send("DISCONNECT");
@@ -220,7 +285,11 @@ $("disconnectBtn").addEventListener("click", async () => {
   } catch (error) { setMessage(error.message || "Could not disconnect.", "error"); }
 });
 $("checkBtn").addEventListener("click", async () => {
-  const proxy = $("proxySelect").value;
+  let proxy = $("proxySelect").value;
+  try {
+    const currentState = await send("GET_STATE");
+    if (currentState && currentState.active && currentState.selectedProxy) proxy = currentState.selectedProxy;
+  } catch (_) {}
   if (!proxy) return;
   $("checkBtn").disabled = true; $("ipResult").textContent = "Checking…";
   try {

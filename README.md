@@ -9,6 +9,7 @@ A free, open-source Chrome Manifest V3 extension that lets you define your own d
 - Add domains one per line; protocol prefixes and URL paths are normalized, and duplicate or invalid entries are ignored.
 - Loads a public Netherlands proxy list from [maximilianfeix/free-proxy-list](https://github.com/maximilianfeix/free-proxy-list).
 - Supports HTTP, HTTPS, SOCKS4, and SOCKS5 proxy entries where Chrome's PAC resolver supports them.
+- **Tor routing:** choose the local Tor Browser SOCKS5 endpoint (`127.0.0.1:9150`) or a standalone Tor service (`127.0.0.1:9050`) as the default proxy or a per-domain override.
 - Prominent connection status, selected proxy and active mode, save/apply rules, disconnect, refresh the list, and check the proxy's observed exit IP.
 - Saves site rules and attempts to restore the previous Chrome proxy configuration on disconnect.
 - No preset destination domains, account, analytics, or tracking SDK.
@@ -21,6 +22,10 @@ A free, open-source Chrome Manifest V3 extension that lets you define your own d
 4. Select **Load unpacked** and choose the extracted `SiteTunnel` folder.
 5. Click the extension icon, refresh the proxy list, enter your domains, choose Include or Exclude, and click **Save & apply rules**.
 6. Select a proxy and click **Connect proxy**.
+
+## Tor setup
+
+SiteTunnel does not include, install, or launch Tor. Install and start [Tor Browser](https://www.torproject.org/download/) first, keep it open, then select **Tor Browser · 127.0.0.1:9150** in SiteTunnel. For a separately installed Tor daemon, use **Tor service · 127.0.0.1:9050** if that listener is configured. The port depends on your Tor setup; connection failures usually mean nothing is listening there. You can route selected domains through Tor using the per-site proxy override, or route all sites according to Exclude mode. Do not assume all browser traffic is anonymous: extensions, browser fingerprinting, account logins, and traffic outside Chrome are separate concerns.
 
 ## Privacy and limitations
 
