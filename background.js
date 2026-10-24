@@ -759,7 +759,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
           const result = await chrome.scripting.executeScript({target:{tabId:tabId},func:() => (document.body && document.body.innerText || "").trim()});
           const ip = result && result[0] ? String(result[0].result || "").trim() : "";
-          if (!/^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(ip) && !/^[0-9a-f:]+$/i.test(ip)) throw new Error("The test page did not return a valid exit IP.");
+          if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip) && !/^[0-9a-f:]+$/i.test(ip)) throw new Error("The test page did not return a valid exit IP.");
           testResult = {ok:true, ip:ip, proxy:proxy};
         } catch (err) {
           testError = err;
