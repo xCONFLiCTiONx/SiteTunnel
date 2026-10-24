@@ -572,7 +572,6 @@ $("buildPoolBtn").addEventListener("click", async () => {
         let verifiedIp = null;
 
         try {
-          // Full web handshake: fetch Cloudflare CDN edge metadata
           const checkResp = await fetch("https://cloudflare.com/cdn-cgi/trace?sitetunnel_check=" + Date.now(), {
             cache: "no-store",
             signal: controller.signal
@@ -582,14 +581,31 @@ $("buildPoolBtn").addEventListener("click", async () => {
             const match = /^ip=([^\r\n]+)/m.exec(body);
             if (match) verifiedIp = match[1].trim();
           }
+        } catch (_) {
+          // Continue to an independent endpoint; some proxies block Cloudflare.
         } finally {
           clearTimeout(timeout);
         }
 
-        const elapsed = Date.now() - started;
-        if (verifiedIp) {
-          healthy.push({proxy: proxy, latency: elapsed, ip: verifiedIp});
+        if (!verifiedIp) {
+          const fallbackController = new AbortController();
+          const fallbackTimeout = setTimeout(() => fallbackController.abort(), 8000);
+          try {
+            const fallback = await fetch("https://api.ipify.org/?sitetunnel_check=" + Date.now(), {
+              cache: "no-store",
+              signal: fallbackController.signal
+            });
+            if (fallback.ok) {
+              const candidateIp = (await fallback.text()).trim();
+              if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(candidateIp) || candidateIp.includes(":")) verifiedIp = candidateIp;
+            }
+          } finally {
+            clearTimeout(fallbackTimeout);
+          }
         }
+
+        const elapsed = Date.now() - started;
+        if (verifiedIp) healthy.push({proxy: proxy, latency: elapsed, ip: verifiedIp});
       } catch (_) {
       } finally {
         try { await send("RESTORE_TARGETS"); } catch (_) {}
