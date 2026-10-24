@@ -100,7 +100,7 @@ function setMessage(message, kind) {
 }
 function updateModeHelp() {
   $("modeHelp").textContent = mode() === "include"
-    ? "Only sites in this list use the selected proxy. All other sites connect directly."
+    ? "All sites use the selected proxy except sites in this list, which connect directly."
     : "All sites use the selected proxy except sites in this list, which connect directly.";
 }
 
@@ -526,76 +526,26 @@ $("disconnectBtn").addEventListener("click", async () => {
   } catch (error) { setMessage(error.message || "Could not disconnect.", "error"); }
 });
 
-// Check route: if current tab has a mapped domain proxy, check that mapped proxy; otherwise check active proxy
+// Verify the proxy using a normal browser tab, not an extension-popup fetch (which can bypass proxy routing).
 $("checkBtn").addEventListener("click", async () => {
-  let proxyToCheck = $("proxySelect").value;
-  let targetDesc = proxyToCheck;
+  const button = $("checkBtn");
+  const proxy = $("proxySelect").value;
+  if (!proxy) return;
+  button.disabled = true;
+  $("ipResult").textContent = "Testing real browser traffic through " + proxy + "…";
   try {
-    const currentState = await send("GET_STATE");
-    const tabs = await chrome.tabs.query({active:true, currentWindow:true});
-    const url = tabs && tabs[0] ? tabs[0].url : "";
-    let host = "";
-    try { host = new URL(url).hostname.toLowerCase().replace(/^www\./, ""); } catch (_) {}
-    
-    if (host && currentState && currentState.siteProxyMap && currentState.siteProxyMap[host]) {
-      proxyToCheck = currentState.siteProxyMap[host];
-      targetDesc = "Mapped proxy for " + host + " (" + proxyToCheck + ")";
-    } else if (currentState && currentState.active && currentState.selectedProxy) {
-      proxyToCheck = currentState.selectedProxy;
-      targetDesc = "Active default (" + proxyToCheck + ")";
-    }
-  } catch (_) {}
-
-  if (!proxyToCheck) return;
-  $("checkBtn").disabled = true;
-  $("ipResult").textContent = "Checking via " + targetDesc + "…";
-
-  try {
-    const setup = await send("SET_TEMP_TEST", {proxy: proxyToCheck});
-    if (!setup || !setup.ok) throw new Error(setup && setup.error ? setup.error : "Could not configure test route.");
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    let observedIp = null;
-
-    try {
-      const resp = await fetch("https://cloudflare.com/cdn-cgi/trace?sitetunnel_exit=" + Date.now(), {
-        cache: "no-store",
-        signal: controller.signal
-      });
-      if (resp.ok) {
-        const text = await resp.text();
-        const m = /^ip=([^\r\n]+)/m.exec(text);
-        if (m) observedIp = m[1].trim();
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!observedIp) {
-      // Fallback to ipify if Cloudflare trace is blocked
-      const ipResp = await fetch("https://api.ipify.org/?sitetunnel_exit=" + Date.now(), {cache:"no-store"});
-      if (ipResp.ok) observedIp = (await ipResp.text()).trim();
-    }
-
-    const restore = await send("RESTORE_TARGETS");
-    if (!restore || !restore.ok) throw new Error(restore && restore.error ? restore.error : "Could not restore site rules.");
-
-    if (observedIp) {
-      $("ipResult").textContent = "Observed exit IP: " + observedIp + " (routed via " + proxyToCheck + ")";
-      setMessage("Exit check complete; your site rules have been restored.", "success");
-    } else {
-      throw new Error("Proxy did not return an exit IP.");
-    }
+    const result = await send("CHECK_PROXY_EXIT", {proxy:proxy});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Proxy exit test failed.");
+    $("ipResult").textContent = "Browser-tab exit IP: " + result.ip + " · proxy: " + result.proxy;
+    setMessage("Real browser-tab proxy test completed.", "success");
   } catch (error) {
-    try { await send("RESTORE_TARGETS"); } catch (_) {}
-    $("ipResult").textContent = "Check failed: " + error.message;
-    setMessage("Proxy test failed. The endpoint may be offline or timing out.", "error");
+    $("ipResult").textContent = "PROXY TEST FAILED: " + (error.message || "Unknown error");
+    setMessage("The proxy did not pass a real browser traffic test.", "error");
   } finally {
-    $("checkBtn").disabled = !verifiedProxies.length;
+    button.disabled = !verifiedProxies.length;
+    await updateState();
   }
 });
-
 // Run the complete proxy-source scan in the service worker; it survives popup closure.
 $("testAllProxiesBtn").addEventListener("click", async () => {
   const button = $("testAllProxiesBtn");
@@ -731,7 +681,7 @@ $("autoRandomize").addEventListener("change", async () => {
 (async function init() {
   const saved = await chrome.storage.local.get(["sites", "mode"]);
   if (Array.isArray(saved.sites)) $("siteList").value = saved.sites.join("\n");
-  if (saved.mode === "exclude") $("modeExclude").checked = true;
+  if (saved.mode === "exclude" || !saved.mode) $("modeExclude").checked = true;
   updateModeHelp();
   updateCurrentSiteButton();
   renderSiteProxyMappings();
