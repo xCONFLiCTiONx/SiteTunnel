@@ -198,7 +198,7 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     "var sites = " + JSON.stringify(normalized) + ";\n" +
     "var auditHosts = ['api.ipify.org', 'api6.ipify.org', 'checkip.amazonaws.com', 'ipinfo.io'];\n" +
     "var auditRoutingEnabled = sites.some(function(site) { return site === 'xconflictionx.cc' || site.endsWith('.xconflictionx.cc'); });\n" +
-    "if (auditRoutingEnabled && auditHosts.some(function(auditHost) { return host === auditHost || host.slice(-(auditHost.length + 1)) === '.' + auditHost; })) return " + JSON.stringify(directive) + ";\n" +
+    "if (" + JSON.stringify(selectedMode) + " === 'include' && auditRoutingEnabled && auditHosts.some(function(auditHost) { return host === auditHost || host.slice(-(auditHost.length + 1)) === '.' + auditHost; })) return " + JSON.stringify(directive) + ";\n" +
     "var matched = false;\n" +
     "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host === 'www.' + sites[i] || host.indexOf('.' + sites[i], host.length - sites[i].length - 1) !== -1) { matched = true; break; } }\n" +
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
