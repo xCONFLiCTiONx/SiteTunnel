@@ -336,14 +336,31 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
           verifiedIp = match[1].trim();
         }
       }
+    } catch (_) {
+      // Some public proxies block Cloudflare; try a second independent IP endpoint.
     } finally {
       clearTimeout(timeout);
     }
 
-    const elapsed = Date.now() - start;
-    if (verifiedIp) {
-      return { ok: true, ip: verifiedIp, latency: elapsed };
+    if (!verifiedIp) {
+      const fallbackController = new AbortController();
+      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 8000);
+      try {
+        const fallback = await fetch("https://api.ipify.org/?sitetunnel_bg=" + Date.now(), {
+          cache: "no-store",
+          signal: fallbackController.signal
+        });
+        if (fallback.ok) {
+          const candidateIp = (await fallback.text()).trim();
+          if (/^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(candidateIp) || candidateIp.includes(":")) verifiedIp = candidateIp;
+        }
+      } finally {
+        clearTimeout(fallbackTimeout);
+      }
     }
+
+    const elapsed = Date.now() - start;
+    if (verifiedIp) return { ok: true, ip: verifiedIp, latency: elapsed };
     return { ok: false };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -353,6 +370,7 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
 // Background test routine for daily refresh and on-demand calls
 async function runBackgroundTest(countryCode) {
   const stored = await getSettings();
+  const originalProxySetting = await chrome.proxy.settings.get({incognito:false});
   const code = countryCode || stored.selectedCountry || "nl";
   let candidates = [];
 
@@ -382,13 +400,16 @@ async function runBackgroundTest(countryCode) {
         healthy.push({ proxy: proxy, latency: result.latency, ip: result.ip });
       }
     } finally {
+      // Restore the exact effective proxy configuration present before testing.
       try {
-        if (stored.active && stored.selectedProxy) {
-          await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
+        if (originalProxySetting && originalProxySetting.value) {
+          await chrome.proxy.settings.set({value: originalProxySetting.value, scope:"regular"});
         } else {
           await chrome.proxy.settings.clear({scope:"regular"});
         }
-      } catch (_) {}
+      } catch (restoreError) {
+        console.warn("SiteTunnel: Could not restore proxy settings after test:", restoreError);
+      }
     }
   }
 
