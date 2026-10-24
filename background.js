@@ -654,6 +654,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const healthy = [...new Set([...(Array.isArray(stored.healthyProxies) ? stored.healthyProxies : []), proxy])];
         await chrome.storage.local.set({verifiedProxies:verified,healthyProxies:healthy});
         sendResponse({ok:true,count:verified.length,proxies:verified});
+      } else if (message && message.type === "REMOVE_VERIFIED_PROXY") {
+        const proxy = typeof message.proxy === "string" ? message.proxy : "";
+        if (!proxy) throw new Error("Select a proxy to remove.");
+        const stored = await getSettings();
+        if (stored.active && stored.selectedProxy === proxy) await disconnect();
+        const data = await chrome.storage.local.get(["verifiedProxies","healthyProxies","favoriteProxies","siteProxyMap","selectedProxy"]);
+        const verified = (Array.isArray(data.verifiedProxies) ? data.verifiedProxies : []).filter(p => p !== proxy);
+        const healthy = (Array.isArray(data.healthyProxies) ? data.healthyProxies : []).filter(p => p !== proxy);
+        const favorites = (Array.isArray(data.favoriteProxies) ? data.favoriteProxies : []).filter(p => p !== proxy);
+        const siteProxyMap = {...(data.siteProxyMap || {})};
+        for (const [host, mappedProxy] of Object.entries(siteProxyMap)) if (mappedProxy === proxy) delete siteProxyMap[host];
+        await chrome.storage.local.set({
+          verifiedProxies:verified, healthyProxies:healthy, favoriteProxies:favorites,
+          siteProxyMap:siteProxyMap,
+          selectedProxy: data.selectedProxy === proxy ? "" : (data.selectedProxy || "")
+        });
+        sendResponse({ok:true,proxies:verified,favorites:favorites,removed:proxy});
       } else if (message && message.type === "SAVE_VERIFIED_PROXIES") {
         const verified = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))] : [];
         await chrome.storage.local.set({
