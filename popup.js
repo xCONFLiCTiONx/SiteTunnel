@@ -546,6 +546,41 @@ $("checkBtn").addEventListener("click", async () => {
     await updateState();
   }
 });
+// Add a custom proxy without downloading public proxy lists.
+$("customProxyBtn").addEventListener("click", async () => {
+  const input = $("customProxyInput");
+  const parsed = parseProxyLines(input.value);
+  if (parsed.length !== 1) {
+    setMessage("Enter one proxy as host:port or http://host:port (https, socks4 and socks5 are also supported).", "error");
+    input.focus();
+    return;
+  }
+  const proxy = parsed[0];
+  const button = $("customProxyBtn");
+  button.disabled = true;
+  try {
+    const result = await send("ADD_VERIFIED_PROXY", {proxy});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not add custom proxy.");
+    verifiedProxies = Array.isArray(result.proxies) ? result.proxies : [...new Set([...verifiedProxies, proxy])];
+    renderProxies();
+    renderSiteProxyMappings();
+    $("proxySelect").value = proxy;
+    input.value = "";
+    $("poolStatus").textContent = "Custom proxy added to your list. Use “Check proxy exit IP” to test its real browser connection.";
+    setMessage("Added " + proxy + ". It is saved, but not confirmed working until you test it.", "success");
+    $("checkBtn").disabled = false;
+    $("connectBtn").disabled = false;
+  } catch (error) {
+    setMessage(error.message || "Could not add custom proxy.", "error");
+  } finally {
+    button.disabled = false;
+    await updateState();
+  }
+});
+$("customProxyInput").addEventListener("keydown", event => {
+  if (event.key === "Enter") $("customProxyBtn").click();
+});
+
 // Run the complete proxy-source scan in the service worker; it survives popup closure.
 $("testAllProxiesBtn").addEventListener("click", async () => {
   const button = $("testAllProxiesBtn");
@@ -643,7 +678,17 @@ $("buildPoolBtn").addEventListener("click", async () => {
         }
 
         const elapsed = Date.now() - started;
-        if (verifiedIp) healthy.push({proxy: proxy, latency: elapsed, ip: verifiedIp});
+        if (verifiedIp) {
+          healthy.push({proxy: proxy, latency: elapsed, ip: verifiedIp});
+          // Persist every passing proxy immediately so a slow scan never loses progress.
+          const savedNow = await send("ADD_VERIFIED_PROXY", {proxy: proxy});
+          if (savedNow && savedNow.ok) {
+            verifiedProxies = Array.isArray(savedNow.proxies) ? savedNow.proxies : [...new Set([...verifiedProxies, proxy])];
+            renderProxies();
+            renderSiteProxyMappings();
+            $("poolStatus").textContent = "Testing " + (i + 1) + "/" + sample.length + " · " + healthy.length + " newly working saved immediately.";
+          }
+        }
       } catch (_) {
       } finally {
         try { await send("RESTORE_TARGETS"); } catch (_) {}
@@ -652,16 +697,14 @@ $("buildPoolBtn").addEventListener("click", async () => {
 
     healthy.sort((a, b) => a.latency - b.latency);
     const workingList = healthy.map(x => x.proxy);
-
-    const saved = await send("SAVE_VERIFIED_PROXIES", {proxies: workingList, country: country});
-    if (!saved || !saved.ok) throw new Error("Failed to save verified proxies.");
-
-    verifiedProxies = workingList;
+    // Keep existing verified proxies; successful candidates were saved one by one above.
+    const stateAfterScan = await send("GET_STATE");
+    if (stateAfterScan && Array.isArray(stateAfterScan.verifiedProxies)) verifiedProxies = stateAfterScan.verifiedProxies;
     renderProxies();
     renderSiteProxyMappings();
-    
-    $("poolStatus").textContent = "Successfully tested " + sample.length + " servers with real web requests: " + workingList.length + " passed tests.";
-    setMessage(workingList.length ? ("Created list with " + workingList.length + " verified proxies.") : "None of the tested public proxies responded to web requests. Try another country.", workingList.length ? "success" : "error");
+
+    $("poolStatus").textContent = "Finished testing " + sample.length + " servers: " + workingList.length + " passed and were saved as they passed. Existing saved proxies were kept.";
+    setMessage(workingList.length ? ("Saved " + workingList.length + " newly verified proxies as they passed.") : "None of the tested public proxies responded to web requests. Your existing saved proxies were kept; try another country.", workingList.length ? "success" : "error");
   } catch (error) {
     $("poolStatus").textContent = "Testing failed: " + error.message;
     setMessage(error.message, "error");
