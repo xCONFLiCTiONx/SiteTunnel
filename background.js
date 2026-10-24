@@ -296,9 +296,9 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
   try {
     await applyProxy(proxy, sites || [], mode || "include", true, siteProxyMap || {});
 
-    // Step 1: Render / fetch actual HTML content from Cloudflare CDN trace
+    // Step 1: Render / fetch actual HTML content from Cloudflare CDN trace with 1s hard limit
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 1000);
     const start = Date.now();
     let verifiedIp = null;
 
@@ -321,7 +321,7 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
     }
 
     const elapsed = Date.now() - start;
-    if (verifiedIp && elapsed < 5500) {
+    if (verifiedIp && elapsed <= 1000) {
       return { ok: true, ip: verifiedIp, latency: elapsed };
     }
     return { ok: false };

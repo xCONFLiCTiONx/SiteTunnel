@@ -501,7 +501,7 @@ $("checkBtn").addEventListener("click", async () => {
     if (!setup || !setup.ok) throw new Error(setup && setup.error ? setup.error : "Could not configure test route.");
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 1000);
     let observedIp = null;
 
     try {
@@ -567,7 +567,7 @@ $("buildPoolBtn").addEventListener("click", async () => {
         if (!setup || !setup.ok) continue;
 
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4500);
+        const timeout = setTimeout(() => controller.abort(), 1000);
         const started = Date.now();
         let verifiedIp = null;
 
@@ -587,7 +587,7 @@ $("buildPoolBtn").addEventListener("click", async () => {
         }
 
         const elapsed = Date.now() - started;
-        if (verifiedIp && elapsed < 5000) {
+        if (verifiedIp && elapsed <= 1000) {
           healthy.push({proxy: proxy, latency: elapsed, ip: verifiedIp});
         }
       } catch (_) {
