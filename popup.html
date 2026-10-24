@@ -124,7 +124,8 @@
       <label class="modeChoice"><input type="radio" name="siteMode" id="modeInclude" value="include" checked><span>Include list (proxy only listed sites) — SAFE DEFAULT</span></label>
       <label class="modeChoice"><input type="radio" name="siteMode" id="modeExclude" value="exclude"><span>Exclude list (proxy all other sites)</span></label>
     </div>
-    <p id="modeHelp" class="small muted">SAFE DEFAULT: only domains in this list use the proxy. Every other site connects directly. An empty list sends no website traffic through the proxy.</p>
+    <p id="modeHelp" class="small muted">Include mode proxies only listed destination domains. Other hostnames—including third-party APIs, IP-check sites, CDNs, and embedded resources—connect directly.</p>
+    <p class="small" style="padding:10px;border:1px solid #d97706;border-radius:8px;background:rgba(217,119,6,.10);">⚠️ <strong>Important:</strong> Include mode does not proxy every request initiated by an included page. If you need all browser destinations to use the proxy, select <strong>Exclude mode</strong> and leave the exclusion list empty. Exclude any domain only when you deliberately want it to connect directly.</p>
     <label for="siteList">Your sites</label>
     <textarea id="siteList" rows="5" spellcheck="false" placeholder="example.com&#10;shop.example.org&#10;subdomain.example.net"></textarea>
     <button id="currentSiteBtn" class="primary">Include this site</button>
