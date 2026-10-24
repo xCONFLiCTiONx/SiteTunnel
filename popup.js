@@ -10,6 +10,8 @@ const $ = id => document.getElementById(id);
 let verifiedProxies = [];
 let favoriteProxies = [];
 let savedSiteProxyMap = {};
+const proxyLocationCache = new Map();
+const proxyLocationPending = new Set();
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type: type}, extra));
 
 // SVG Icons (viewBox="0 0 16 16")
@@ -177,6 +179,47 @@ function updateProxyDetails() {
   $("proxyDetails").textContent = proxy.split("://")[0].toUpperCase() + " · Verified live connection · " + (isFav ? "★ Favorite" : "Not starred");
 }
 
+
+function getProxyHost(proxy) {
+  try { return new URL(proxy.includes("://") ? proxy : "http://" + proxy).hostname.replace(/^\\[|\\]$/g, ""); }
+  catch (_) { return String(proxy || "").split("://").pop().split(":")[0]; }
+}
+
+async function loadProxyLocation(proxy, label) {
+  if (proxyLocationCache.has(proxy)) {
+    label.textContent = " · " + proxyLocationCache.get(proxy);
+    return;
+  }
+  if (proxyLocationPending.has(proxy)) return;
+  proxyLocationPending.add(proxy);
+  try {
+    const stored = await chrome.storage.local.get(["proxyLocationCache"]);
+    const cache = stored.proxyLocationCache && typeof stored.proxyLocationCache === "object" ? stored.proxyLocationCache : {};
+    const cached = cache[proxy];
+    let location;
+    if (cached && cached.savedAt && Date.now() - cached.savedAt < 7 * 24 * 60 * 60 * 1000) {
+      location = cached.location;
+    } else {
+      const host = getProxyHost(proxy);
+      const response = await fetch("https://ipwho.is/" + encodeURIComponent(host), {cache:"no-store", signal:AbortSignal.timeout(5000)});
+      if (!response.ok) throw new Error("Location lookup failed");
+      const data = await response.json();
+      if (data.success === false) throw new Error(data.message || "Location unavailable");
+      const region = data.region || data.region_code || "";
+      const country = data.country || data.country_code || "";
+      location = [region, country].filter(Boolean).join(", ") || "Location unavailable";
+      cache[proxy] = {location, savedAt:Date.now()};
+      await chrome.storage.local.set({proxyLocationCache:cache});
+    }
+    proxyLocationCache.set(proxy, location);
+    label.textContent = " · " + location;
+  } catch (_) {
+    label.textContent = " · Location unavailable";
+  } finally {
+    proxyLocationPending.delete(proxy);
+  }
+}
+
 function renderFavoritesSection() {
   const container = $("favoritesList");
   const badge = $("favCountBadge");
@@ -196,6 +239,7 @@ function renderFavoritesSection() {
     const isOnline = verifiedProxies.includes(proxy);
     label.textContent = "★ " + proxy + (isOnline ? " (verified)" : " (unverified/offline)");
     label.style.color = isOnline ? "var(--green)" : "var(--muted)";
+    loadProxyLocation(proxy, label);
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "quiet";
