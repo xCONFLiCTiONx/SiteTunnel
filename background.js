@@ -463,8 +463,8 @@ async function startAllProxyTest() {
     const stored = await getSettings();
     for (const favorite of (Array.isArray(stored.favoriteProxies) ? stored.favoriteProxies : [])) candidates.unshift(favorite);
     const unique = [...new Set(candidates)];
-    const existing = new Set(Array.isArray(stored.verifiedProxies) ? stored.verifiedProxies : []);
-    const queue = unique.filter(proxy => !existing.has(proxy));
+    // Retest every unique candidate from every country, including previously saved entries.
+    const queue = unique;
     await chrome.storage.local.set({allProxyTest:{status:"running",queue,tested:0,passed:0,total:queue.length,startedAt:Date.now(),errors:0}});
     await chrome.notifications.create("sitetunnel-all-test-started", {
       type:"basic", iconUrl:"icons/icon128.png", title:"SiteTunnel: Full proxy test started",
