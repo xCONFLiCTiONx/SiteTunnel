@@ -100,8 +100,8 @@ function setMessage(message, kind) {
 }
 function updateModeHelp() {
   $("modeHelp").textContent = mode() === "include"
-    ? "SAFE DEFAULT: only domains in this list use the proxy. Every other site connects directly. An empty list sends no website traffic through the proxy."
-    : "EXCLUDE mode sends all sites through the proxy except domains in this list. Use only if you explicitly want a broad proxy route.";
+    ? "Include mode proxies only listed destination domains. Third-party APIs, IP-check sites, CDNs, and embedded resources on those pages may connect directly."
+    : "Exclude mode proxies all destination hosts except the domains listed here. Leave this list empty to send all ordinary browser destinations through the selected proxy.";
 }
 
 $("removeProxyBtn").addEventListener("click", async () => {
