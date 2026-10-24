@@ -128,7 +128,6 @@ function renderProxies() {
   $("verifiedCountBadge").textContent = verifiedProxies.length + " verified";
   $("listStatus").textContent = verifiedProxies.length + " working proxies verified & ready to use.";
 
-  // Group favorites and regular verified
   const favSet = new Set(favoriteProxies);
   const favList = verifiedProxies.filter(p => favSet.has(p));
   const otherList = verifiedProxies.filter(p => !favSet.has(p));
@@ -220,7 +219,16 @@ async function toggleFavorite(proxy) {
   }
 }
 
-function renderConnection(state) {
+function normalizeHost(value) {
+  let host = String(value || "").trim().toLowerCase();
+  host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
+  return host;
+}
+function hostMatches(host, domain) {
+  return host === domain || host.endsWith("." + domain);
+}
+
+function renderConnection(state, currentTabRoute) {
   const active = Boolean(state && state.active);
   const banner = $("connectionBanner");
   banner.classList.toggle("connected", active);
@@ -228,9 +236,16 @@ function renderConnection(state) {
   $("connectionIcon").innerHTML = getSvgMarkup(active, "currentColor");
   $("connectionTitle").textContent = active ? "PROXY CONNECTED" : "Proxy disconnected";
   const selectedMode = state && state.mode === "exclude" ? "Exclude list" : "Include list";
-  $("connectionDetail").textContent = active
-    ? (state.selectedProxy || "Proxy active") + " · " + selectedMode + " · " + ((state.sites || []).length) + " domains"
-    : "Your saved site rules are not active.";
+
+  let detailMsg = "Your saved site rules are not active.";
+  if (active) {
+    if (currentTabRoute && currentTabRoute.mappedProxy) {
+      detailMsg = "Current tab mapped → " + currentTabRoute.mappedProxy + " · Default: " + (state.selectedProxy || "None");
+    } else {
+      detailMsg = (state.selectedProxy || "Proxy active") + " · " + selectedMode + " · " + ((state.sites || []).length) + " domains";
+    }
+  }
+  $("connectionDetail").textContent = detailMsg;
   $("statusPill").textContent = active ? "CONNECTED" : "DISCONNECTED";
   $("statusPill").classList.toggle("on", active);
   $("disconnectBtn").disabled = !active;
@@ -250,15 +265,6 @@ function renderConnection(state) {
   }
 }
 
-function normalizeHost(value) {
-  let host = String(value || "").trim().toLowerCase();
-  host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
-  return host;
-}
-function hostMatches(host, domain) {
-  return host === domain || host.endsWith("." + domain);
-}
-
 async function updateTabRoute(state) {
   const active = Boolean(state && state.active);
   const routeDetailEl = $("tabRouteDetail");
@@ -271,12 +277,12 @@ async function updateTabRoute(state) {
     if (!active) {
       updateBrandIcon(false);
       if (routeDetailEl) routeDetailEl.textContent = "Current tab: Direct (SiteTunnel is disconnected)";
-      return;
+      return { isConnected: false, mappedProxy: null };
     }
     if (!parsed || !["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) {
       updateBrandIcon(false);
       if (routeDetailEl) routeDetailEl.textContent = "Current tab: Direct (system or internal page)";
-      return;
+      return { isConnected: false, mappedProxy: null };
     }
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
     const map = state.siteProxyMap && typeof state.siteProxyMap === "object" ? state.siteProxyMap : {};
@@ -303,11 +309,13 @@ async function updateTabRoute(state) {
     }
     updateBrandIcon(tabUsesProxy);
     if (routeDetailEl) routeDetailEl.textContent = "Current tab (" + host + "): " + route;
+    return { isConnected: tabUsesProxy, mappedProxy: mappedProxy || null };
   } catch (_) {
     updateBrandIcon(active);
     if (routeDetailEl) {
       routeDetailEl.textContent = active ? "Current tab: Active" : "Current tab: Direct";
     }
+    return { isConnected: active, mappedProxy: null };
   }
 }
 
@@ -323,8 +331,8 @@ async function updateState() {
         $("lastTestedInfo").textContent = "Last verified: " + d.toLocaleDateString() + " " + d.toLocaleTimeString();
       }
       renderProxies();
-      renderConnection(state);
-      await updateTabRoute(state);
+      const tabRoute = await updateTabRoute(state);
+      renderConnection(state, tabRoute);
       if (state.levelOfControl && !["controlled_by_this_extension", "controllable_by_this_extension"].includes(state.levelOfControl)) {
         setMessage("Another policy or extension controls Chrome's proxy settings.", "error");
       }
@@ -464,28 +472,74 @@ $("disconnectBtn").addEventListener("click", async () => {
   } catch (error) { setMessage(error.message || "Could not disconnect.", "error"); }
 });
 
+// Check route: if current tab has a mapped domain proxy, check that mapped proxy; otherwise check active proxy
 $("checkBtn").addEventListener("click", async () => {
-  let proxy = $("proxySelect").value;
+  let proxyToCheck = $("proxySelect").value;
+  let targetDesc = proxyToCheck;
   try {
     const currentState = await send("GET_STATE");
-    if (currentState && currentState.active && currentState.selectedProxy) proxy = currentState.selectedProxy;
+    const tabs = await chrome.tabs.query({active:true, currentWindow:true});
+    const url = tabs && tabs[0] ? tabs[0].url : "";
+    let host = "";
+    try { host = new URL(url).hostname.toLowerCase().replace(/^www\./, ""); } catch (_) {}
+    
+    if (host && currentState && currentState.siteProxyMap && currentState.siteProxyMap[host]) {
+      proxyToCheck = currentState.siteProxyMap[host];
+      targetDesc = "Mapped proxy for " + host + " (" + proxyToCheck + ")";
+    } else if (currentState && currentState.active && currentState.selectedProxy) {
+      proxyToCheck = currentState.selectedProxy;
+      targetDesc = "Active default (" + proxyToCheck + ")";
+    }
   } catch (_) {}
-  if (!proxy) return;
-  $("checkBtn").disabled = true; $("ipResult").textContent = "Checking…";
+
+  if (!proxyToCheck) return;
+  $("checkBtn").disabled = true;
+  $("ipResult").textContent = "Checking via " + targetDesc + "…";
+
   try {
-    const setup = await send("SET_TEMP_TEST", {proxy:proxy});
+    const setup = await send("SET_TEMP_TEST", {proxy: proxyToCheck});
     if (!setup || !setup.ok) throw new Error(setup && setup.error ? setup.error : "Could not configure test route.");
-    const response = await fetch("https://api.ipify.org/?sitetunnel=" + Date.now(), {cache:"no-store"});
-    if (!response.ok) throw new Error("IP check returned HTTP " + response.status);
-    $("ipResult").textContent = "Observed exit IP: " + (await response.text()).trim();
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    let observedIp = null;
+
+    try {
+      const resp = await fetch("https://cloudflare.com/cdn-cgi/trace?sitetunnel_exit=" + Date.now(), {
+        cache: "no-store",
+        signal: controller.signal
+      });
+      if (resp.ok) {
+        const text = await resp.text();
+        const m = /^ip=([^\r\n]+)/m.exec(text);
+        if (m) observedIp = m[1].trim();
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!observedIp) {
+      // Fallback to ipify if Cloudflare trace is blocked
+      const ipResp = await fetch("https://api.ipify.org/?sitetunnel_exit=" + Date.now(), {cache:"no-store"});
+      if (ipResp.ok) observedIp = (await ipResp.text()).trim();
+    }
+
     const restore = await send("RESTORE_TARGETS");
     if (!restore || !restore.ok) throw new Error(restore && restore.error ? restore.error : "Could not restore site rules.");
-    setMessage("Exit check complete; your site rules have been restored.", "success");
+
+    if (observedIp) {
+      $("ipResult").textContent = "Observed exit IP: " + observedIp + " (routed via " + proxyToCheck + ")";
+      setMessage("Exit check complete; your site rules have been restored.", "success");
+    } else {
+      throw new Error("Proxy did not return an exit IP.");
+    }
   } catch (error) {
     try { await send("RESTORE_TARGETS"); } catch (_) {}
     $("ipResult").textContent = "Check failed: " + error.message;
-    setMessage("Proxy test failed. The endpoint may be offline or blocked.", "error");
-  } finally { $("checkBtn").disabled = !verifiedProxies.length; }
+    setMessage("Proxy test failed. The endpoint may be offline or timing out.", "error");
+  } finally {
+    $("checkBtn").disabled = !verifiedProxies.length;
+  }
 });
 
 // Testing and building verified proxy pool
@@ -501,10 +555,9 @@ $("buildPoolBtn").addEventListener("click", async () => {
     const candidates = parseProxyLines(await resp.text());
     if (!candidates.length) throw new Error("No proxy candidates found for " + country);
 
-    // Test a sample of candidates (up to 25)
-    const sample = candidates.slice(0, 25);
+    const sample = candidates.slice(0, 30);
     const healthy = [];
-    $("poolStatus").textContent = "Testing " + sample.length + " candidates. Only working servers will be saved…";
+    $("poolStatus").textContent = "Rendering and testing real web requests through " + sample.length + " proxies…";
 
     for (let i = 0; i < sample.length; i++) {
       const proxy = sample[i];
@@ -512,22 +565,30 @@ $("buildPoolBtn").addEventListener("click", async () => {
       try {
         const setup = await send("SET_TEMP_TEST", {proxy: proxy});
         if (!setup || !setup.ok) continue;
+
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
+        const timeout = setTimeout(() => controller.abort(), 4500);
         const started = Date.now();
-        let ok = false;
+        let verifiedIp = null;
+
         try {
-          const checkResp = await fetch("https://api.ipify.org/?sitetunnel_check=" + Date.now(), {cache:"no-store", signal:controller.signal});
+          // Full web handshake: fetch Cloudflare CDN edge metadata
+          const checkResp = await fetch("https://cloudflare.com/cdn-cgi/trace?sitetunnel_check=" + Date.now(), {
+            cache: "no-store",
+            signal: controller.signal
+          });
           if (checkResp.ok) {
-            const ip = (await checkResp.text()).trim();
-            ok = ip.split(".").length === 4 && ip.split(".").every(part => part.length > 0 && part.length <= 3 && Number(part) >= 0 && Number(part) <= 255);
+            const body = await checkResp.text();
+            const match = /^ip=([^\r\n]+)/m.exec(body);
+            if (match) verifiedIp = match[1].trim();
           }
         } finally {
           clearTimeout(timeout);
         }
+
         const elapsed = Date.now() - started;
-        if (ok && elapsed < 4500) {
-          healthy.push({proxy: proxy, latency: elapsed});
+        if (verifiedIp && elapsed < 5000) {
+          healthy.push({proxy: proxy, latency: elapsed, ip: verifiedIp});
         }
       } catch (_) {
       } finally {
@@ -545,8 +606,8 @@ $("buildPoolBtn").addEventListener("click", async () => {
     renderProxies();
     renderSiteProxyMappings();
     
-    $("poolStatus").textContent = "Successfully tested " + sample.length + " servers: " + workingList.length + " passed tests and are added to your active list.";
-    setMessage(workingList.length ? ("Created list with " + workingList.length + " verified proxies.") : "None of the tested public proxies responded. Try another country.", workingList.length ? "success" : "error");
+    $("poolStatus").textContent = "Successfully tested " + sample.length + " servers with real web requests: " + workingList.length + " passed tests.";
+    setMessage(workingList.length ? ("Created list with " + workingList.length + " verified proxies.") : "None of the tested public proxies responded to web requests. Try another country.", workingList.length ? "success" : "error");
   } catch (error) {
     $("poolStatus").textContent = "Testing failed: " + error.message;
     setMessage(error.message, "error");

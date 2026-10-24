@@ -88,10 +88,6 @@ function getTabProxyRoute(tabUrl, settings) {
   return { isConnected: false, proxy: null, title: "Disconnected" };
 }
 
-function isTabUsingProxy(tabUrl, settings) {
-  return getTabProxyRoute(tabUrl, settings).isConnected;
-}
-
 async function updateTabActionIcon(tabId, tabUrl, settings, isDark) {
   if (!chrome.action) return;
   const route = getTabProxyRoute(tabUrl, settings);
@@ -194,10 +190,10 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   }
   return "function FindProxyForURL(url, host) {\n" +
     "host = String(host || '').toLowerCase();\n" +
-    (includeIpCheck ? "if (host === 'api.ipify.org') return " + JSON.stringify(directive) + ";\n" : "") +
-    "var sites = " + JSON.stringify(normalized) + ";\n" +
+    (includeIpCheck ? "if (host === 'api.ipify.org' || host === 'cloudflare.com' || host === 'httpbin.org') return " + JSON.stringify(directive) + ";\n" : "") +
     "var overrides = " + JSON.stringify(overrides) + ";\n" +
     "for (var key in overrides) { if (Object.prototype.hasOwnProperty.call(overrides, key) && (host === key || host === 'www.' + key || host.indexOf('.' + key, host.length - key.length - 1) !== -1)) return overrides[key]; }\n" +
+    "var sites = " + JSON.stringify(normalized) + ";\n" +
     "var matched = false;\n" +
     "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host === 'www.' + sites[i] || host.indexOf('.' + sites[i], host.length - sites[i].length - 1) !== -1) { matched = true; break; } }\n" +
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
@@ -279,7 +275,6 @@ async function disconnect() {
   return {ok:true};
 }
 
-// Helper to parse proxy strings from plain text
 function parseProxyLines(text) {
   const seen = new Set(), results = [];
   for (const raw of text.split(/\r?\n/)) {
@@ -294,6 +289,45 @@ function parseProxyLines(text) {
     if (!seen.has(item)) { seen.add(item); results.push(item); }
   }
   return results;
+}
+
+// Rigorous website connectivity tester
+async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
+  try {
+    await applyProxy(proxy, sites || [], mode || "include", true, siteProxyMap || {});
+
+    // Step 1: Render / fetch actual HTML content from Cloudflare CDN trace
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const start = Date.now();
+    let verifiedIp = null;
+
+    try {
+      const resp = await fetch("https://cloudflare.com/cdn-cgi/trace?sitetunnel_bg=" + Date.now(), {
+        cache: "no-store",
+        signal: controller.signal
+      });
+
+      if (resp.ok) {
+        const text = await resp.text();
+        // cdn-cgi/trace returns key=value pairs including ip=... and loc=...
+        const match = /^ip=([^\r\n]+)/m.exec(text);
+        if (match) {
+          verifiedIp = match[1].trim();
+        }
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const elapsed = Date.now() - start;
+    if (verifiedIp && elapsed < 5500) {
+      return { ok: true, ip: verifiedIp, latency: elapsed };
+    }
+    return { ok: false };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 // Background test routine for daily refresh and on-demand calls
@@ -312,40 +346,21 @@ async function runBackgroundTest(countryCode) {
     return { ok: false, error: err.message };
   }
 
-  // Also retain existing favorites in candidates so we test whether favorites are still alive
   const existingFavorites = Array.isArray(stored.favoriteProxies) ? stored.favoriteProxies : [];
   for (const fav of existingFavorites) {
     if (!candidates.includes(fav)) candidates.unshift(fav);
   }
 
-  // Take a test batch (up to 25 proxies)
   const sample = candidates.slice(0, 25);
   const healthy = [];
 
   for (let i = 0; i < sample.length; i++) {
     const proxy = sample[i];
     try {
-      const current = await chrome.proxy.settings.get({incognito:false});
-      await applyProxy(proxy, stored.sites || [], stored.mode || "include", true, stored.siteProxyMap || {});
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
-      const start = Date.now();
-      let ok = false;
-      try {
-        const resp = await fetch("https://api.ipify.org/?sitetunnel_bg=" + Date.now(), {cache:"no-store", signal:controller.signal});
-        if (resp.ok) {
-          const ip = (await resp.text()).trim();
-          ok = ip.split(".").length === 4 && ip.split(".").every(p => p.length > 0 && p.length <= 3 && Number(p) >= 0 && Number(p) <= 255);
-        }
-      } finally {
-        clearTimeout(timeout);
+      const result = await testSingleProxy(proxy, stored.sites, stored.mode, stored.siteProxyMap);
+      if (result.ok) {
+        healthy.push({ proxy: proxy, latency: result.latency, ip: result.ip });
       }
-      const elapsed = Date.now() - start;
-      if (ok && elapsed < 4500) {
-        healthy.push({ proxy: proxy, latency: elapsed });
-      }
-    } catch (_) {
     } finally {
       try {
         if (stored.active && stored.selectedProxy) {
@@ -360,7 +375,6 @@ async function runBackgroundTest(countryCode) {
   healthy.sort((a, b) => a.latency - b.latency);
   const verifiedList = healthy.map(h => h.proxy);
 
-  // Keep favorites that were verified, or keep them marked
   await chrome.storage.local.set({
     verifiedProxies: verifiedList,
     healthyProxies: verifiedList,
@@ -571,7 +585,6 @@ chrome.alarms.onAlarm.addListener(async alarm => {
 async function ensureDailyAlarm() {
   const existing = await chrome.alarms.get(DAILY_TEST_ALARM);
   if (!existing) {
-    // Run every 24 hours (1440 minutes)
     chrome.alarms.create(DAILY_TEST_ALARM, { periodInMinutes: 1440, delayInMinutes: 1440 });
   }
 }
@@ -606,7 +619,6 @@ chrome.runtime.onStartup.addListener(async () => {
   const stored = await getSettings();
   if (!stored.active || !stored.selectedProxy) return;
 
-  // If autoRandomize is enabled, select from favorites first, then verified list
   const randomProxy = stored.autoRandomize ? await chooseStartupProxy() : null;
   const proxy = randomProxy || stored.selectedProxy;
   try {
