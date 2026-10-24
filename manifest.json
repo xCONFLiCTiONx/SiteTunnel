@@ -18,7 +18,8 @@
     "https://api.ipify.org/*",
     "https://cloudflare.com/*",
     "https://httpbin.org/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://ipwho.is/*"
   ],
   "icons": {
     "16": "icons/icon16.png",
