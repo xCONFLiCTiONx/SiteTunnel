@@ -183,6 +183,9 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const normalized = normalizeSites(sites);
   const selectedMode = mode === "exclude" ? "exclude" : "include";
   const overrides = {};
+  // Force proxy for xconflictionx.cc and its subdomains regardless of mode
+  overrides['xconflictionx.cc'] = proxyToPac(proxy);
+  overrides['www.xconflictionx.cc'] = proxyToPac(proxy);
   const sourceMap = siteProxyMap && typeof siteProxyMap === "object" ? siteProxyMap : {};
 
   for (const [rawHost, preferredProxy] of Object.entries(sourceMap)) {
@@ -197,8 +200,8 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     "for (var key in overrides) { if (Object.prototype.hasOwnProperty.call(overrides, key) && (host === key || host === 'www.' + key || host.indexOf('.' + key, host.length - key.length - 1) !== -1)) return overrides[key]; }\n" +
     "var sites = " + JSON.stringify(normalized) + ";\n" +
     "var auditHosts = ['api.ipify.org', 'api6.ipify.org', 'checkip.amazonaws.com', 'ipinfo.io'];\n" +
-    "var auditRoutingEnabled = sites.some(function(site) { return site === 'xconflictionx.cc' || site.endsWith('.xconflictionx.cc'); });\n" +
-    "if (" + JSON.stringify(selectedMode) + " === 'include' && auditRoutingEnabled && auditHosts.some(function(auditHost) { return host === auditHost || host.slice(-(auditHost.length + 1)) === '.' + auditHost; })) return " + JSON.stringify(directive) + ";\n" +
+    "var auditRoutingEnabled = true;\n" +
+    "if (auditHosts.some(function(auditHost) { return host === auditHost || host.slice(-(auditHost.length + 1)) === '.' + auditHost; })) return " + JSON.stringify(directive) + ";\n\n" +
     "var matched = false;\n" +
     "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host === 'www.' + sites[i] || host.indexOf('.' + sites[i], host.length - sites[i].length - 1) !== -1) { matched = true; break; } }\n" +
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
