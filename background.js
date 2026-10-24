@@ -352,7 +352,7 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
         });
         if (fallback.ok) {
           const candidateIp = (await fallback.text()).trim();
-          if (/^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(candidateIp) || candidateIp.includes(":")) verifiedIp = candidateIp;
+          if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(candidateIp) || candidateIp.includes(":")) verifiedIp = candidateIp;
         }
       } finally {
         clearTimeout(fallbackTimeout);
