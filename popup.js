@@ -194,7 +194,7 @@ async function getProxyLocation(proxy) {
     const stored = await chrome.storage.local.get(["proxyLocationCache"]);
     const cache = stored.proxyLocationCache && typeof stored.proxyLocationCache === "object" ? stored.proxyLocationCache : {};
     const cached = cache[proxy];
-    if (cached && cached.savedAt && Date.now() - cached.savedAt < 7 * 24 * 60 * 60 * 1000) {
+    if (cached && cached.version === 2 && cached.savedAt && Date.now() - cached.savedAt < 7 * 24 * 60 * 60 * 1000) {
       proxyLocationCache.set(proxy, cached.location);
       return cached.location;
     }
@@ -208,7 +208,7 @@ async function getProxyLocation(proxy) {
     proxyLocationCache.set(proxy, location);
     const latest = await chrome.storage.local.get(["proxyLocationCache"]);
     const latestCache = latest.proxyLocationCache && typeof latest.proxyLocationCache === "object" ? latest.proxyLocationCache : {};
-    latestCache[proxy] = { location: location, savedAt: Date.now() };
+    latestCache[proxy] = { location: location, savedAt: Date.now(), version: 2 };
     await chrome.storage.local.set({ proxyLocationCache: latestCache });
     return location;
   })();
