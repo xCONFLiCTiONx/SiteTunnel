@@ -771,7 +771,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (before && before.value) await chrome.proxy.settings.set({value:before.value,scope:"regular"});
             else await chrome.proxy.settings.clear({scope:"regular"});
             const latest = await getSettings();
-            if (latest.active && latest.selectedProxy) await applyProxy(latest.selectedProxy, latest.sites || [], latest.mode || "exclude", false, latest.siteProxyMap || {});
+            if (latest.active && latest.selectedProxy) await applyProxy(latest.selectedProxy, latest.sites || [], latest.mode || "include", false, latest.siteProxyMap || {});
           } catch (restoreError) {
             console.warn("SiteTunnel: Could not restore proxy settings after exit test:", restoreError);
             if (!testError) testError = new Error("Exit test finished, but Chrome proxy settings could not be restored: " + restoreError.message);
