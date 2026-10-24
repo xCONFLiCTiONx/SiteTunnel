@@ -104,9 +104,37 @@ function updateModeHelp() {
     : "All sites use the selected proxy except sites in this list, which connect directly.";
 }
 
+$("removeProxyBtn").addEventListener("click", async () => {
+  const proxy = $("proxySelect").value;
+  if (!proxy) {
+    setMessage("Select the proxy you want to remove first.", "error");
+    return;
+  }
+  const button = $("removeProxyBtn");
+  button.disabled = true;
+  try {
+    const result = await send("REMOVE_VERIFIED_PROXY", {proxy});
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not remove proxy.");
+    verifiedProxies = Array.isArray(result.proxies) ? result.proxies : verifiedProxies.filter(p => p !== proxy);
+    favoriteProxies = Array.isArray(result.favorites) ? result.favorites : favoriteProxies.filter(p => p !== proxy);
+    renderProxies();
+    renderSiteProxyMappings();
+    updateProxyDetails();
+    $("poolStatus").textContent = "Removed " + proxy + " from the saved proxy list.";
+    setMessage("Removed " + proxy + " from saved proxies and favorites.", "success");
+    await updateState();
+  } catch (error) {
+    setMessage(error.message || "Could not remove proxy.", "error");
+  } finally {
+    button.disabled = !verifiedProxies.length;
+  }
+});
+
 function renderProxies() {
   const select = $("proxySelect");
   select.replaceChildren();
+  const removeBtn = $("removeProxyBtn");
+  if (removeBtn) removeBtn.disabled = !verifiedProxies.length;
   const starBtn = $("starBtn");
   
   if (!verifiedProxies.length) {
