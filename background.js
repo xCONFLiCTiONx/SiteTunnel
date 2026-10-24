@@ -198,7 +198,7 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     "var sites = " + JSON.stringify(normalized) + ";\n" +
     "var matched = false;\n" +
     "for (var i = 0; i < sites.length; i++) { if (host === sites[i] || host === 'www.' + sites[i] || host.indexOf('.' + sites[i], host.length - sites[i].length - 1) !== -1) { matched = true; break; } }\n" +
-    "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
+    "if (" + JSON.stringify(selectedMode) + " === 'include') return sites.length === 0 || matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
     "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\n}";
 }
 
