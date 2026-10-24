@@ -1,5 +1,5 @@
-
 const ALARM_NAME = "sitetunnel-reapply";
+const DAILY_TEST_ALARM = "sitetunnel-daily-refresh";
 
 // SVG Icon Paths (viewBox="0 0 16 16")
 const ICON_PATH_DEFAULT = "M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46";
@@ -7,7 +7,7 @@ const ICON_PATH_CONNECTED = "M10 8h.5a.5.5 0 1 0 0-1H10V5.5A2.5 2.5 0 0 0 9.5 4h
 
 let currentSystemIsDark = null;
 let lastRenderedThemeDark = null;
-const imageBitmapCache = {}; // key: `${isConnected ? 'conn' : 'def'}_${isDark ? 'dark' : 'light'}` -> { [size]: ImageData }
+const imageBitmapCache = {};
 
 function getRenderedImageData(isConnected, isDark) {
   const cacheKey = (isConnected ? "conn" : "def") + "_" + (isDark ? "dark" : "light");
@@ -24,7 +24,6 @@ function getRenderedImageData(isConnected, isDark) {
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = iconColor;
     ctx.save();
-    // Path coordinates are designed on a 16x16 grid
     ctx.scale(size / 16, size / 16);
     const p = new Path2D(pathString);
     ctx.fill(p);
@@ -65,7 +64,6 @@ function getTabProxyRoute(tabUrl, settings) {
     return { isConnected: false, proxy: null, title: "Disconnected" };
   }
 
-  // Check per-domain proxy override mappings
   const map = settings.siteProxyMap && typeof settings.siteProxyMap === "object" ? settings.siteProxyMap : {};
   let mappedHost = "";
   let mappedProxy = "";
@@ -130,14 +128,13 @@ async function updateAllTabIcons(forceDark) {
         if (storedTheme && typeof storedTheme.last_known_is_dark === "boolean") {
           isDark = storedTheme.last_known_is_dark;
         } else {
-          isDark = true; // Fallback default
+          isDark = true;
         }
       }
     }
     currentSystemIsDark = isDark;
     lastRenderedThemeDark = isDark;
 
-    // Apply default global icon & tooltip
     if (chrome.action) {
       if (chrome.action.setIcon) {
         const defaultGlobalData = getRenderedImageData(false, isDark);
@@ -148,7 +145,6 @@ async function updateAllTabIcons(forceDark) {
       }
     }
 
-    // Update per-tab icons for all active tabs across windows
     if (chrome.tabs && chrome.tabs.query) {
       const tabs = await chrome.tabs.query({});
       for (const tab of tabs) {
@@ -190,9 +186,7 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const selectedMode = mode === "exclude" ? "exclude" : "include";
   const overrides = {};
   const sourceMap = siteProxyMap && typeof siteProxyMap === "object" ? siteProxyMap : {};
-  // Normalize mapping keys independently from the site list so host spelling
-  // differences (scheme, path, trailing dot, wildcard prefix) cannot silently
-  // disable an otherwise saved per-domain override.
+
   for (const [rawHost, preferredProxy] of Object.entries(sourceMap)) {
     const hosts = normalizeSites([rawHost]);
     if (!hosts.length || typeof preferredProxy !== "string" || !preferredProxy) continue;
@@ -209,15 +203,42 @@ function pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap) {
     "if (" + JSON.stringify(selectedMode) + " === 'include') return matched ? " + JSON.stringify(directive) + " : 'DIRECT';\n" +
     "return matched ? 'DIRECT' : " + JSON.stringify(directive) + ";\n}";
 }
+
 async function getSettings() {
-  return await chrome.storage.local.get(["active", "selectedProxy", "sites", "mode", "previousProxyConfig", "hasPreviousProxyConfig", "healthyProxies", "autoRandomize", "siteProxyMap"]);
+  return await chrome.storage.local.get([
+    "active",
+    "selectedProxy",
+    "sites",
+    "mode",
+    "previousProxyConfig",
+    "hasPreviousProxyConfig",
+    "healthyProxies",
+    "favoriteProxies",
+    "verifiedProxies",
+    "selectedCountry",
+    "lastTestedAt",
+    "autoRandomize",
+    "siteProxyMap"
+  ]);
 }
-async function chooseHealthyProxy() {
+
+async function chooseStartupProxy() {
   const stored = await getSettings();
+  const favorites = Array.isArray(stored.favoriteProxies) ? stored.favoriteProxies.filter(p => typeof p === "string") : [];
+  if (favorites.length > 0) {
+    return favorites[Math.floor(Math.random() * favorites.length)];
+  }
+  const verified = Array.isArray(stored.verifiedProxies) ? stored.verifiedProxies.filter(p => typeof p === "string") : [];
+  if (verified.length > 0) {
+    return verified[Math.floor(Math.random() * verified.length)];
+  }
   const pool = Array.isArray(stored.healthyProxies) ? stored.healthyProxies.filter(p => typeof p === "string") : [];
-  if (!pool.length) return null;
-  return pool[Math.floor(Math.random() * pool.length)];
+  if (pool.length > 0) {
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  return null;
 }
+
 async function applyProxy(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const setting = await chrome.proxy.settings.get({incognito:false});
   if (setting.levelOfControl === "controlled_by_other_extensions" || setting.levelOfControl === "not_controllable") {
@@ -226,6 +247,7 @@ async function applyProxy(proxy, sites, mode, includeIpCheck, siteProxyMap) {
   const data = pacScript(proxy, sites, mode, includeIpCheck, siteProxyMap);
   await chrome.proxy.settings.set({value:{mode:"pac_script", pacScript:{data:data}}, scope:"regular"});
 }
+
 async function connect(proxy, sites, mode) {
   const stored = await getSettings();
   const setting = await chrome.proxy.settings.get({incognito:false});
@@ -243,6 +265,7 @@ async function connect(proxy, sites, mode) {
   await updateAllTabIcons();
   return {ok:true, sites:cleanSites, mode:cleanMode};
 }
+
 async function disconnect() {
   const stored = await getSettings();
   if (stored.hasPreviousProxyConfig && stored.previousProxyConfig) {
@@ -254,6 +277,98 @@ async function disconnect() {
   await chrome.alarms.clear(ALARM_NAME);
   await updateAllTabIcons();
   return {ok:true};
+}
+
+// Helper to parse proxy strings from plain text
+function parseProxyLines(text) {
+  const seen = new Set(), results = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const normalized = /^[a-z]+:\/\//i.test(line) ? line : "http://" + line;
+    const m = /^(http|https|socks4|socks5):\/\/([^:/\s]+):(\d{1,5})$/i.exec(normalized);
+    if (!m) continue;
+    const port = Number(m[3]);
+    if (port < 1 || port > 65535) continue;
+    const item = m[1].toLowerCase() + "://" + m[2] + ":" + port;
+    if (!seen.has(item)) { seen.add(item); results.push(item); }
+  }
+  return results;
+}
+
+// Background test routine for daily refresh and on-demand calls
+async function runBackgroundTest(countryCode) {
+  const stored = await getSettings();
+  const code = countryCode || stored.selectedCountry || "nl";
+  let candidates = [];
+
+  try {
+    const response = await fetch("https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/" + encodeURIComponent(code) + ".txt", {cache:"no-store"});
+    if (response.ok) {
+      candidates = parseProxyLines(await response.text());
+    }
+  } catch (err) {
+    console.warn("SiteTunnel: Failed to fetch country list for testing:", err);
+    return { ok: false, error: err.message };
+  }
+
+  // Also retain existing favorites in candidates so we test whether favorites are still alive
+  const existingFavorites = Array.isArray(stored.favoriteProxies) ? stored.favoriteProxies : [];
+  for (const fav of existingFavorites) {
+    if (!candidates.includes(fav)) candidates.unshift(fav);
+  }
+
+  // Take a test batch (up to 25 proxies)
+  const sample = candidates.slice(0, 25);
+  const healthy = [];
+
+  for (let i = 0; i < sample.length; i++) {
+    const proxy = sample[i];
+    try {
+      const current = await chrome.proxy.settings.get({incognito:false});
+      await applyProxy(proxy, stored.sites || [], stored.mode || "include", true, stored.siteProxyMap || {});
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const start = Date.now();
+      let ok = false;
+      try {
+        const resp = await fetch("https://api.ipify.org/?sitetunnel_bg=" + Date.now(), {cache:"no-store", signal:controller.signal});
+        if (resp.ok) {
+          const ip = (await resp.text()).trim();
+          ok = ip.split(".").length === 4 && ip.split(".").every(p => p.length > 0 && p.length <= 3 && Number(p) >= 0 && Number(p) <= 255);
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+      const elapsed = Date.now() - start;
+      if (ok && elapsed < 4500) {
+        healthy.push({ proxy: proxy, latency: elapsed });
+      }
+    } catch (_) {
+    } finally {
+      try {
+        if (stored.active && stored.selectedProxy) {
+          await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
+        } else {
+          await chrome.proxy.settings.clear({scope:"regular"});
+        }
+      } catch (_) {}
+    }
+  }
+
+  healthy.sort((a, b) => a.latency - b.latency);
+  const verifiedList = healthy.map(h => h.proxy);
+
+  // Keep favorites that were verified, or keep them marked
+  await chrome.storage.local.set({
+    verifiedProxies: verifiedList,
+    healthyProxies: verifiedList,
+    lastTestedAt: Date.now(),
+    selectedCountry: code
+  });
+
+  return { ok: true, count: verifiedList.length, proxies: verifiedList };
 }
 
 // Offscreen Document Detection for Theme/Color-Scheme
@@ -291,7 +406,7 @@ async function setupOffscreenDocument() {
   }
 }
 
-// Tab navigation & activation listeners to maintain per-tab icon accuracy
+// Tab navigation & activation listeners
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete" || changeInfo.url) {
     const stored = await getSettings();
@@ -309,6 +424,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   } catch (_) {}
 });
 
+// Runtime messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
@@ -362,20 +478,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await updateAllTabIcons();
         sendResponse({ok:true, map:map});
       } else if (message && message.type === "SAVE_HEALTHY_POOL") {
-        const pool = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))].slice(0, 30) : [];
+        const pool = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))] : [];
         await chrome.storage.local.set({healthyProxies:pool, autoRandomize:Boolean(message.autoRandomize)});
         sendResponse({ok:true, count:pool.length});
+      } else if (message && message.type === "SAVE_VERIFIED_PROXIES") {
+        const verified = Array.isArray(message.proxies) ? [...new Set(message.proxies.filter(p => typeof p === "string"))] : [];
+        await chrome.storage.local.set({
+          verifiedProxies: verified,
+          healthyProxies: verified,
+          lastTestedAt: Date.now(),
+          selectedCountry: message.country || "nl"
+        });
+        sendResponse({ok:true, count:verified.length});
+      } else if (message && message.type === "TOGGLE_FAVORITE") {
+        const stored = await getSettings();
+        let favs = Array.isArray(stored.favoriteProxies) ? [...stored.favoriteProxies] : [];
+        const proxy = message.proxy;
+        if (proxy) {
+          if (favs.includes(proxy)) {
+            favs = favs.filter(p => p !== proxy);
+          } else {
+            favs.push(proxy);
+          }
+          await chrome.storage.local.set({favoriteProxies: favs});
+        }
+        sendResponse({ok:true, favorites: favs});
       } else if (message && message.type === "GET_STATE") {
         const stored = await getSettings();
         const setting = await chrome.proxy.settings.get({incognito:false});
-        sendResponse({active:Boolean(stored.active), selectedProxy:stored.selectedProxy || "", sites:stored.sites || [], mode:stored.mode || "include", connectedAt:stored.connectedAt || null, levelOfControl:setting.levelOfControl, healthyProxies:stored.healthyProxies || [], autoRandomize:Boolean(stored.autoRandomize), siteProxyMap:stored.siteProxyMap || {}});
+        sendResponse({
+          active: Boolean(stored.active),
+          selectedProxy: stored.selectedProxy || "",
+          sites: stored.sites || [],
+          mode: stored.mode || "include",
+          connectedAt: stored.connectedAt || null,
+          levelOfControl: setting.levelOfControl,
+          healthyProxies: stored.healthyProxies || [],
+          verifiedProxies: stored.verifiedProxies || [],
+          favoriteProxies: stored.favoriteProxies || [],
+          lastTestedAt: stored.lastTestedAt || null,
+          selectedCountry: stored.selectedCountry || "nl",
+          autoRandomize: Boolean(stored.autoRandomize),
+          siteProxyMap: stored.siteProxyMap || {}
+        });
+      } else if (message && message.type === "TRIGGER_DAILY_TEST") {
+        const result = await runBackgroundTest(message.country);
+        sendResponse(result);
       } else if (message && message.type === "SET_TEMP_TEST") {
         const stored = await getSettings();
         const proxy = message.proxy;
         if (!proxy) throw new Error("Select a proxy first.");
         const current = await chrome.proxy.settings.get({incognito:false});
         await chrome.storage.local.set({testPreviousProxyConfig:current.value || null, testHadProxyConfig:Boolean(current.value)});
-        await applyProxy(proxy, stored.sites || [], stored.mode || "include", true);
+        await applyProxy(proxy, stored.sites || [], stored.mode || "include", true, stored.siteProxyMap || {});
         sendResponse({ok:true});
       } else if (message && message.type === "RESTORE_TARGETS") {
         const stored = await getSettings();
@@ -393,15 +548,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// Periodic alarm handler
 chrome.alarms.onAlarm.addListener(async alarm => {
-  if (alarm.name !== ALARM_NAME) return;
-  const stored = await getSettings();
-  if (stored.active && stored.selectedProxy) {
+  if (alarm.name === ALARM_NAME) {
+    const stored = await getSettings();
+    if (stored.active && stored.selectedProxy) {
+      try {
+        await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
+      } catch (_) {}
+    }
+  } else if (alarm.name === DAILY_TEST_ALARM) {
+    console.log("SiteTunnel: Running scheduled daily proxy test and refresh...");
     try {
-      await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
-    } catch (_) {}
+      await runBackgroundTest();
+    } catch (err) {
+      console.warn("SiteTunnel: Daily test error:", err);
+    }
   }
 });
+
+// Setup daily alarm
+async function ensureDailyAlarm() {
+  const existing = await chrome.alarms.get(DAILY_TEST_ALARM);
+  if (!existing) {
+    // Run every 24 hours (1440 minutes)
+    chrome.alarms.create(DAILY_TEST_ALARM, { periodInMinutes: 1440, delayInMinutes: 1440 });
+  }
+}
 
 // Initialization
 try {
@@ -413,22 +586,28 @@ try {
       updateAllTabIcons(true);
     }
     setupOffscreenDocument();
+    ensureDailyAlarm();
   });
 } catch (_) {
   setupOffscreenDocument();
+  ensureDailyAlarm();
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   setupOffscreenDocument();
   updateAllTabIcons();
+  ensureDailyAlarm();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   setupOffscreenDocument();
   updateAllTabIcons();
+  ensureDailyAlarm();
   const stored = await getSettings();
   if (!stored.active || !stored.selectedProxy) return;
-  const randomProxy = stored.autoRandomize ? await chooseHealthyProxy() : null;
+
+  // If autoRandomize is enabled, select from favorites first, then verified list
+  const randomProxy = stored.autoRandomize ? await chooseStartupProxy() : null;
   const proxy = randomProxy || stored.selectedProxy;
   try {
     await applyProxy(proxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});

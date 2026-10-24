@@ -1,11 +1,16 @@
+const COUNTRY_NAMES = {
+  nl: "Netherlands", us: "United States", gb: "United Kingdom", de: "Germany",
+  fr: "France", ca: "Canada", ch: "Switzerland", se: "Sweden",
+  no: "Norway", fi: "Finland", dk: "Denmark", ie: "Ireland",
+  pl: "Poland", cz: "Czechia", es: "Spain", it: "Italy",
+  jp: "Japan", sg: "Singapore", au: "Australia"
+};
 
-const COUNTRY_NAMES = {nl:"Netherlands",us:"United States",gb:"United Kingdom",de:"Germany",fr:"France",ca:"Canada",ch:"Switzerland",se:"Sweden",no:"Norway",fi:"Finland",dk:"Denmark",ie:"Ireland",pl:"Poland",cz:"Czechia",es:"Spain",it:"Italy",jp:"Japan",sg:"Singapore",au:"Australia"};
 const $ = id => document.getElementById(id);
-let proxies = [];
-let allCandidates = [];
-let proxyCountry = {};
+let verifiedProxies = [];
+let favoriteProxies = [];
 let savedSiteProxyMap = {};
-const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type:type}, extra));
+const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type: type}, extra));
 
 // SVG Icons (viewBox="0 0 16 16")
 const ICON_PATH_DEFAULT = "M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46";
@@ -71,6 +76,7 @@ function parseProxyLines(text) {
   }
   return results;
 }
+
 function parseSites() {
   const parts = $("siteList").value.split(/[\n,;]+/);
   const sites = [], seen = new Set();
@@ -84,6 +90,7 @@ function parseSites() {
   }
   return sites;
 }
+
 function mode() { return $("modeExclude").checked ? "exclude" : "include"; }
 function setMessage(message, kind) {
   $("message").textContent = message;
@@ -94,23 +101,125 @@ function updateModeHelp() {
     ? "Only sites in this list use the selected proxy. All other sites connect directly."
     : "All sites use the selected proxy except sites in this list, which connect directly.";
 }
+
 function renderProxies() {
   const select = $("proxySelect");
   select.replaceChildren();
-  if (proxies.length) {
-    const publicGroup = document.createElement("optgroup"); publicGroup.label = "Public proxies";
-    for (const proxy of proxies) {
-      const opt = document.createElement("option"); opt.value = proxy; opt.textContent = proxy; publicGroup.append(opt);
+  const starBtn = $("starBtn");
+  
+  if (!verifiedProxies.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No verified proxies available";
+    select.append(opt);
+    select.disabled = true;
+    $("connectBtn").disabled = true;
+    $("checkBtn").disabled = true;
+    if (starBtn) {
+      starBtn.disabled = true;
+      starBtn.classList.remove("isFav");
     }
-    select.append(publicGroup);
+    $("verifiedCountBadge").textContent = "0 verified";
+    $("listStatus").textContent = "Proxy list is empty. Click 'Fetch, test & build verified list' below to create it.";
+    updateProxyDetails();
+    return;
   }
-  select.disabled = false; $("connectBtn").disabled = false; $("checkBtn").disabled = false;
+
+  $("verifiedCountBadge").textContent = verifiedProxies.length + " verified";
+  $("listStatus").textContent = verifiedProxies.length + " working proxies verified & ready to use.";
+
+  // Group favorites and regular verified
+  const favSet = new Set(favoriteProxies);
+  const favList = verifiedProxies.filter(p => favSet.has(p));
+  const otherList = verifiedProxies.filter(p => !favSet.has(p));
+
+  if (favList.length) {
+    const favGroup = document.createElement("optgroup");
+    favGroup.label = "★ Favorite Proxies";
+    for (const proxy of favList) {
+      const opt = document.createElement("option");
+      opt.value = proxy;
+      opt.textContent = "★ " + proxy;
+      favGroup.append(opt);
+    }
+    select.append(favGroup);
+  }
+
+  if (otherList.length) {
+    const otherGroup = document.createElement("optgroup");
+    otherGroup.label = "Verified Working Proxies";
+    for (const proxy of otherList) {
+      const opt = document.createElement("option");
+      opt.value = proxy;
+      opt.textContent = proxy;
+      otherGroup.append(opt);
+    }
+    select.append(otherGroup);
+  }
+
+  select.disabled = false;
+  $("connectBtn").disabled = false;
+  $("checkBtn").disabled = false;
+  if (starBtn) starBtn.disabled = false;
   updateProxyDetails();
+  renderFavoritesSection();
 }
+
 function updateProxyDetails() {
   const proxy = $("proxySelect").value;
-  $("proxyDetails").textContent = !proxy ? "No proxy selected" : proxy.split("://")[0].toUpperCase() + " · Public endpoint · Availability is not guaranteed";
+  const starBtn = $("starBtn");
+  if (!proxy) {
+    $("proxyDetails").textContent = "No verified proxy selected.";
+    if (starBtn) starBtn.classList.remove("isFav");
+    return;
+  }
+  const isFav = favoriteProxies.includes(proxy);
+  if (starBtn) starBtn.classList.toggle("isFav", isFav);
+  $("proxyDetails").textContent = proxy.split("://")[0].toUpperCase() + " · Verified live connection · " + (isFav ? "★ Favorite" : "Not starred");
 }
+
+function renderFavoritesSection() {
+  const container = $("favoritesList");
+  const badge = $("favCountBadge");
+  badge.textContent = favoriteProxies.length + " favorites";
+
+  if (!favoriteProxies.length) {
+    container.innerHTML = '<p class="small muted">No favorite proxies added yet. Select a verified proxy above and click ★ to add it here.</p>';
+    return;
+  }
+
+  container.replaceChildren();
+  for (const proxy of favoriteProxies) {
+    const item = document.createElement("div");
+    item.className = "favItem";
+
+    const label = document.createElement("span");
+    const isOnline = verifiedProxies.includes(proxy);
+    label.textContent = "★ " + proxy + (isOnline ? " (verified)" : " (unverified/offline)");
+    label.style.color = isOnline ? "var(--green)" : "var(--muted)";
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "quiet";
+    removeBtn.textContent = "Remove";
+    removeBtn.addEventListener("click", async () => {
+      await toggleFavorite(proxy);
+    });
+
+    item.append(label, removeBtn);
+    container.append(item);
+  }
+}
+
+async function toggleFavorite(proxy) {
+  if (!proxy) return;
+  const res = await send("TOGGLE_FAVORITE", {proxy: proxy});
+  if (res && res.ok) {
+    favoriteProxies = res.favorites || [];
+    renderProxies();
+    updateProxyDetails();
+  }
+}
+
 function renderConnection(state) {
   const active = Boolean(state && state.active);
   const banner = $("connectionBanner");
@@ -125,6 +234,7 @@ function renderConnection(state) {
   $("statusPill").textContent = active ? "CONNECTED" : "DISCONNECTED";
   $("statusPill").classList.toggle("on", active);
   $("disconnectBtn").disabled = !active;
+  
   if (state && state.siteProxyMap) savedSiteProxyMap = state.siteProxyMap;
   if (state && state.sites) {
     $("siteList").value = state.sites.join("\n");
@@ -139,21 +249,7 @@ function renderConnection(state) {
     updateProxyDetails();
   }
 }
-async function refreshList() {
-  $("refreshBtn").disabled = true; $("loadCountryBtn").disabled = true;
-  const code = $("countrySelect").value || "nl";
-  $("listStatus").textContent = "Fetching " + (COUNTRY_NAMES[code] || code.toUpperCase()) + " proxy candidates…";
-  try {
-    const response = await fetch("https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/" + encodeURIComponent(code) + ".txt", {cache:"no-store"});
-    if (!response.ok) throw new Error("Country list returned HTTP " + response.status);
-    const loaded = parseProxyLines(await response.text());
-    for (const proxy of loaded) { if (!allCandidates.includes(proxy)) allCandidates.push(proxy); proxyCountry[proxy] = code; }
-    proxies = loaded; renderProxies(); renderSiteProxyMappings();
-    $("listStatus").textContent = loaded.length + " candidates from " + (COUNTRY_NAMES[code] || code.toUpperCase()) + "; " + allCandidates.length + " total candidates loaded across countries.";
-    if (proxies.length) setMessage("Loaded country proxy candidates. Test before trusting them.");
-  } catch (error) { proxies = []; renderProxies(); $("listStatus").textContent = "Could not load country list: " + error.message; setMessage("Country proxy list unavailable.", "error"); }
-  finally { $("refreshBtn").disabled = false; $("loadCountryBtn").disabled = false; }
-}
+
 function normalizeHost(value) {
   let host = String(value || "").trim().toLowerCase();
   host = host.replace(/^https?:\/\//, "").split(/[/?#]/)[0].replace(/^\*?\./, "").replace(/\.$/, "").replace(/^www\./, "");
@@ -162,21 +258,24 @@ function normalizeHost(value) {
 function hostMatches(host, domain) {
   return host === domain || host.endsWith("." + domain);
 }
+
 async function updateTabRoute(state) {
   const active = Boolean(state && state.active);
+  const routeDetailEl = $("tabRouteDetail");
   try {
     const tabs = await chrome.tabs.query({active:true, currentWindow:true});
     const url = tabs && tabs[0] ? tabs[0].url : "";
-    const parsed = new URL(url || "");
+    let parsed = null;
+    try { parsed = new URL(url || ""); } catch (_) {}
+
     if (!active) {
       updateBrandIcon(false);
-      $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
-      $("connectionDetail").textContent = "SiteTunnel is disconnected; saved routes are not active.";
+      if (routeDetailEl) routeDetailEl.textContent = "Current tab: Direct (SiteTunnel is disconnected)";
       return;
     }
-    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) {
-      $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
-      $("connectionDetail").textContent = "This browser page does not support site routing details.";
+    if (!parsed || !["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) {
+      updateBrandIcon(false);
+      if (routeDetailEl) routeDetailEl.textContent = "Current tab: Direct (system or internal page)";
       return;
     }
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
@@ -191,53 +290,84 @@ async function updateTabRoute(state) {
       }
     }
     let route = "";
+    let tabUsesProxy = false;
     if (mappedProxy) {
-      route = "MAPPED · " + mappedProxy;
+      route = "Mapped → " + mappedProxy;
+      tabUsesProxy = true;
     } else {
       const sites = Array.isArray(state.sites) ? state.sites.map(normalizeHost).filter(Boolean) : [];
       const matched = sites.some(domain => hostMatches(host, domain));
       const usesDefault = state.mode === "exclude" ? !matched : matched;
-      route = usesDefault ? "DEFAULT · " + (state.selectedProxy || "proxy not selected") : "DIRECT · no proxy";
+      route = usesDefault ? ("Proxy → " + (state.selectedProxy || "active")) : "Direct (bypassed)";
+      tabUsesProxy = usesDefault;
     }
-    const tabUsesProxy = Boolean(mappedProxy || (state.mode === "exclude" ? !matched : matched));
     updateBrandIcon(tabUsesProxy);
-    $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
-    $("connectionDetail").textContent = host + " → " + route;
+    if (routeDetailEl) routeDetailEl.textContent = "Current tab (" + host + "): " + route;
   } catch (_) {
-    $("connectionTitle").textContent = "ROUTE FOR THIS TAB";
-    $("connectionDetail").textContent = active
-      ? "Could not determine this tab's configured route."
-      : "SiteTunnel is disconnected; saved routes are not active.";
+    updateBrandIcon(active);
+    if (routeDetailEl) {
+      routeDetailEl.textContent = active ? "Current tab: Active" : "Current tab: Direct";
+    }
   }
 }
+
 async function updateState() {
   try {
     const state = await send("GET_STATE");
-    renderConnection(state);
-    await updateTabRoute(state);
-    if (state.levelOfControl && !["controlled_by_this_extension", "controllable_by_this_extension"].includes(state.levelOfControl)) {
-      setMessage("Another policy or extension controls Chrome's proxy settings.", "error");
+    if (state) {
+      verifiedProxies = Array.isArray(state.verifiedProxies) ? state.verifiedProxies : [];
+      favoriteProxies = Array.isArray(state.favoriteProxies) ? state.favoriteProxies : [];
+      if (state.selectedCountry) $("countrySelect").value = state.selectedCountry;
+      if (state.lastTestedAt) {
+        const d = new Date(state.lastTestedAt);
+        $("lastTestedInfo").textContent = "Last verified: " + d.toLocaleDateString() + " " + d.toLocaleTimeString();
+      }
+      renderProxies();
+      renderConnection(state);
+      await updateTabRoute(state);
+      if (state.levelOfControl && !["controlled_by_this_extension", "controllable_by_this_extension"].includes(state.levelOfControl)) {
+        setMessage("Another policy or extension controls Chrome's proxy settings.", "error");
+      }
     }
   } catch (_) {}
 }
+
 function renderSiteProxyMappings() {
   const container = $("siteProxyMappings");
   if (!container) return;
-  const sites = parseSites(); container.replaceChildren();
-  if (!sites.length) { container.textContent = "Add domains to your list to assign preferred proxies."; return; }
+  const sites = parseSites();
+  container.replaceChildren();
+  if (!sites.length) {
+    container.textContent = "Add domains to your site list to assign preferred proxies.";
+    return;
+  }
   for (const host of sites) {
     const row = document.createElement("div"); row.className = "siteProxyRow";
     const label = document.createElement("label"); label.textContent = host; label.htmlFor = "siteproxy-" + host;
     const select = document.createElement("select"); select.id = "siteproxy-" + host; select.dataset.host = host;
     const def = document.createElement("option"); def.value = ""; def.textContent = "Use default proxy"; select.append(def);
-    const options = [...allCandidates]; if (savedSiteProxyMap[host] && !options.includes(savedSiteProxyMap[host])) options.unshift(savedSiteProxyMap[host]);
-    for (const proxy of options) { const opt = document.createElement("option"); opt.value = proxy; opt.textContent = (COUNTRY_NAMES[proxyCountry[proxy]] || (proxyCountry[proxy] || "Saved proxy").toUpperCase()) + " · " + proxy; select.append(opt); }
-    select.value = savedSiteProxyMap[host] || ""; row.append(label, select); container.append(row);
+    
+    const options = [...verifiedProxies];
+    if (savedSiteProxyMap[host] && !options.includes(savedSiteProxyMap[host])) {
+      options.unshift(savedSiteProxyMap[host]);
+    }
+    for (const proxy of options) {
+      const opt = document.createElement("option");
+      opt.value = proxy;
+      const isFav = favoriteProxies.includes(proxy);
+      opt.textContent = (isFav ? "★ " : "") + proxy;
+      select.append(opt);
+    }
+    select.value = savedSiteProxyMap[host] || "";
+    row.append(label, select);
+    container.append(row);
   }
 }
+
 function updateCurrentSiteButton() {
   $("currentSiteBtn").textContent = mode() === "include" ? "Include this site" : "Exclude this site";
 }
+
 async function getCurrentTabHost() {
   const tabs = await chrome.tabs.query({active:true, currentWindow:true});
   const url = tabs && tabs[0] ? tabs[0].url : "";
@@ -247,6 +377,7 @@ async function getCurrentTabHost() {
   if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || !parsed.hostname.includes(".")) throw new Error("Open a regular HTTP or HTTPS website first.");
   return parsed.hostname.toLowerCase().replace(/^www\./, "");
 }
+
 $("currentSiteBtn").addEventListener("click", async () => {
   const button = $("currentSiteBtn");
   button.disabled = true;
@@ -265,8 +396,13 @@ $("currentSiteBtn").addEventListener("click", async () => {
   } catch (error) { $("currentSiteStatus").textContent = error.message; setMessage(error.message, "error"); }
   finally { button.disabled = false; updateCurrentSiteButton(); }
 });
-$("countrySelect").addEventListener("change", refreshList);
-$("loadCountryBtn").addEventListener("click", refreshList);
+
+$("starBtn").addEventListener("click", async () => {
+  const proxy = $("proxySelect").value;
+  if (!proxy) return;
+  await toggleFavorite(proxy);
+});
+
 $("siteList").addEventListener("input", renderSiteProxyMappings);
 $("saveSiteProxyMapBtn").addEventListener("click", async () => {
   try {
@@ -280,14 +416,16 @@ $("saveSiteProxyMapBtn").addEventListener("click", async () => {
     setMessage("Domain proxy preferences saved and applied.", "success"); await updateState();
   } catch (error) { $("siteProxyStatus").textContent = error.message; setMessage(error.message, "error"); }
 });
+
 $("modeInclude").addEventListener("change", () => { updateModeHelp(); updateCurrentSiteButton(); });
 $("modeExclude").addEventListener("change", () => { updateModeHelp(); updateCurrentSiteButton(); });
 $("proxySelect").addEventListener("change", updateProxyDetails);
-$("refreshBtn").addEventListener("click", refreshList);
+
 $("clearSitesBtn").addEventListener("click", () => {
   $("siteList").value = "";
   $("siteStatus").textContent = "List cleared in the editor. Save & apply rules to commit it.";
 });
+
 $("saveSitesBtn").addEventListener("click", async () => {
   const sites = parseSites(), selectedMode = mode();
   try {
@@ -299,6 +437,7 @@ $("saveSitesBtn").addEventListener("click", async () => {
     await updateState();
   } catch (error) { setMessage(error.message || "Could not save rules.", "error"); }
 });
+
 $("connectBtn").addEventListener("click", async () => {
   const proxy = $("proxySelect").value;
   if (!proxy) return;
@@ -313,8 +452,9 @@ $("connectBtn").addEventListener("click", async () => {
     setMessage("Connected. Your " + selectedMode + " rules are active.", "success");
     await updateState();
   } catch (error) { setMessage(error.message || "Could not connect.", "error"); }
-  finally { $("connectBtn").disabled = !proxies.length; }
+  finally { $("connectBtn").disabled = !verifiedProxies.length; }
 });
+
 $("disconnectBtn").addEventListener("click", async () => {
   try {
     const result = await send("DISCONNECT");
@@ -323,6 +463,7 @@ $("disconnectBtn").addEventListener("click", async () => {
     await updateState();
   } catch (error) { setMessage(error.message || "Could not disconnect.", "error"); }
 });
+
 $("checkBtn").addEventListener("click", async () => {
   let proxy = $("proxySelect").value;
   try {
@@ -344,48 +485,84 @@ $("checkBtn").addEventListener("click", async () => {
     try { await send("RESTORE_TARGETS"); } catch (_) {}
     $("ipResult").textContent = "Check failed: " + error.message;
     setMessage("Proxy test failed. The endpoint may be offline or blocked.", "error");
-  } finally { $("checkBtn").disabled = !proxies.length; }
+  } finally { $("checkBtn").disabled = !verifiedProxies.length; }
 });
+
+// Testing and building verified proxy pool
 $("buildPoolBtn").addEventListener("click", async () => {
   const button = $("buildPoolBtn");
   button.disabled = true;
-  const sample = proxies.slice(0, Math.min(12, proxies.length));
-  const healthy = [];
-  $("poolStatus").textContent = "Testing " + sample.length + " public proxies. This can take a minute…";
+  const country = $("countrySelect").value || "nl";
+  $("poolStatus").textContent = "Fetching candidate proxies for " + (COUNTRY_NAMES[country] || country) + "…";
+  
   try {
+    const resp = await fetch("https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/countries/" + encodeURIComponent(country) + ".txt", {cache: "no-store"});
+    if (!resp.ok) throw new Error("Could not download candidate list (HTTP " + resp.status + ")");
+    const candidates = parseProxyLines(await resp.text());
+    if (!candidates.length) throw new Error("No proxy candidates found for " + country);
+
+    // Test a sample of candidates (up to 25)
+    const sample = candidates.slice(0, 25);
+    const healthy = [];
+    $("poolStatus").textContent = "Testing " + sample.length + " candidates. Only working servers will be saved…";
+
     for (let i = 0; i < sample.length; i++) {
       const proxy = sample[i];
-      $("poolStatus").textContent = "Testing " + (i + 1) + "/" + sample.length + ": " + proxy;
+      $("poolStatus").textContent = "Testing " + (i + 1) + "/" + sample.length + ": " + proxy + " (" + healthy.length + " passed)";
       try {
-        const setup = await send("SET_TEMP_TEST", {proxy:proxy});
-        if (!setup || !setup.ok) throw new Error("Could not configure test route");
+        const setup = await send("SET_TEMP_TEST", {proxy: proxy});
+        if (!setup || !setup.ok) continue;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
+        const timeout = setTimeout(() => controller.abort(), 4000);
         const started = Date.now();
         let ok = false;
         try {
-          const response = await fetch("https://api.ipify.org/?sitetunnel=" + Date.now(), {cache:"no-store", signal:controller.signal});
-          if (response.ok) { const ip = (await response.text()).trim(); ok = ip.split(".").length === 4 && ip.split(".").every(part => part.length > 0 && part.length <= 3 && Number(part) >= 0 && Number(part) <= 255); }
-        } finally { clearTimeout(timeout); }
+          const checkResp = await fetch("https://api.ipify.org/?sitetunnel_check=" + Date.now(), {cache:"no-store", signal:controller.signal});
+          if (checkResp.ok) {
+            const ip = (await checkResp.text()).trim();
+            ok = ip.split(".").length === 4 && ip.split(".").every(part => part.length > 0 && part.length <= 3 && Number(part) >= 0 && Number(part) <= 255);
+          }
+        } finally {
+          clearTimeout(timeout);
+        }
         const elapsed = Date.now() - started;
-        if (ok && elapsed < 5000) healthy.push({proxy:proxy, latency:elapsed});
-      } catch (_) { }
-      finally { try { await send("RESTORE_TARGETS"); } catch (_) {} }
+        if (ok && elapsed < 4500) {
+          healthy.push({proxy: proxy, latency: elapsed});
+        }
+      } catch (_) {
+      } finally {
+        try { await send("RESTORE_TARGETS"); } catch (_) {}
+      }
     }
-    healthy.sort((a,b) => a.latency - b.latency);
-    const pool = healthy.slice(0, 8).map(x => x.proxy);
-    const saved = await send("SAVE_HEALTHY_POOL", {proxies:pool, autoRandomize:$("autoRandomize").checked});
-    if (!saved || !saved.ok) throw new Error(saved && saved.error ? saved.error : "Could not save pool");
-    $("poolStatus").textContent = "Saved " + pool.length + " responsive proxies from " + sample.length + " tested. Fastest measured: " + (healthy.length ? healthy[0].latency + " ms" : "none") + ". Randomization " + ($("autoRandomize").checked ? "enabled" : "disabled") + ".";
-    setMessage(pool.length ? "Healthy proxy pool saved." : "No proxies passed the basic test. Try refreshing the list later.", pool.length ? "success" : "error");
-  } catch (error) { $("poolStatus").textContent = "Pool test failed: " + error.message; setMessage(error.message, "error"); }
-  finally { button.disabled = false; await updateState(); }
+
+    healthy.sort((a, b) => a.latency - b.latency);
+    const workingList = healthy.map(x => x.proxy);
+
+    const saved = await send("SAVE_VERIFIED_PROXIES", {proxies: workingList, country: country});
+    if (!saved || !saved.ok) throw new Error("Failed to save verified proxies.");
+
+    verifiedProxies = workingList;
+    renderProxies();
+    renderSiteProxyMappings();
+    
+    $("poolStatus").textContent = "Successfully tested " + sample.length + " servers: " + workingList.length + " passed tests and are added to your active list.";
+    setMessage(workingList.length ? ("Created list with " + workingList.length + " verified proxies.") : "None of the tested public proxies responded. Try another country.", workingList.length ? "success" : "error");
+  } catch (error) {
+    $("poolStatus").textContent = "Testing failed: " + error.message;
+    setMessage(error.message, "error");
+  } finally {
+    button.disabled = false;
+    await updateState();
+  }
 });
+
 $("autoRandomize").addEventListener("change", async () => {
+  const checked = $("autoRandomize").checked;
   const state = await send("GET_STATE");
-  const result = await send("SAVE_HEALTHY_POOL", {proxies:state.healthyProxies || [], autoRandomize:$("autoRandomize").checked});
-  if (result && result.ok) setMessage($("autoRandomize").checked ? "Randomization enabled for the next browser startup." : "Startup randomization disabled.", "success");
+  await send("SAVE_HEALTHY_POOL", {proxies: state.healthyProxies || [], autoRandomize: checked});
+  setMessage(checked ? "Startup randomizer enabled: will pick from your favorites." : "Startup randomizer disabled.", "success");
 });
+
 (async function init() {
   const saved = await chrome.storage.local.get(["sites", "mode"]);
   if (Array.isArray(saved.sites)) $("siteList").value = saved.sites.join("\n");
@@ -393,9 +570,9 @@ $("autoRandomize").addEventListener("change", async () => {
   updateModeHelp();
   updateCurrentSiteButton();
   renderSiteProxyMappings();
-  await refreshList();
   await updateState();
   const state = await send("GET_STATE");
-  $("autoRandomize").checked = Boolean(state.autoRandomize);
-  if (state.healthyProxies && state.healthyProxies.length) $("poolStatus").textContent = state.healthyProxies.length + " saved healthy proxies available for startup randomization.";
+  if (state) {
+    $("autoRandomize").checked = Boolean(state.autoRandomize);
+  }
 })();

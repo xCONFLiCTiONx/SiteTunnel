@@ -1,14 +1,157 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SiteTunnel</title><link rel="stylesheet" href="popup.css"></head>
-<body><main>
-<header><div class="mark" id="brandIcon"></div><div class="brandCopy"><h1>SiteTunnel</h1><p class="muted">Your rules. Your proxy.</p></div><span id="statusPill" class="pill">DISCONNECTED</span></header>
-<section id="connectionBanner" class="connectionBanner disconnected" aria-live="polite"><span id="connectionIcon" class="connectionIcon">●</span><div><strong id="connectionTitle">Proxy disconnected</strong><p id="connectionDetail">Your saved site rules are not active.</p></div></section>
-<section class="card"><div class="sectionHead"><h2>Site rules</h2><span class="muted">One domain per line</span></div>
-<div class="modeChoices" role="radiogroup" aria-label="Site matching mode"><label class="modeChoice"><input type="radio" name="siteMode" id="modeInclude" value="include" checked><span>Include list</span></label><label class="modeChoice"><input type="radio" name="siteMode" id="modeExclude" value="exclude"><span>Exclude list</span></label></div>
-<p id="modeHelp" class="small muted">Only sites in this list use the selected proxy. All other sites connect directly.</p><label for="siteList">Your sites</label><textarea id="siteList" rows="6" spellcheck="false" placeholder="example.com&#10;shop.example.org&#10;subdomain.example.net"></textarea>
-<button id="currentSiteBtn" class="primary">Include this site</button><p id="currentSiteStatus" class="small muted">Adds the current tab’s domain to your selected list.</p><div class="listActions"><button id="saveSitesBtn" class="secondary">Save &amp; apply rules</button><button id="clearSitesBtn" class="quiet">Clear list</button></div><p id="siteStatus" class="small muted">Rules are saved on this device.</p><div class="siteProxyBox"><div class="sectionHead"><h2>Preferred proxy per site</h2><span class="muted">Optional overrides</span></div><p class="small muted">Load a country’s candidates, choose a specific endpoint for each listed domain, then save. Overrides route that domain through the chosen proxy even if the general mode would otherwise bypass it.</p><div id="siteProxyMappings"></div><button id="saveSiteProxyMapBtn" class="secondary">Save domain proxy preferences</button><p id="siteProxyStatus" class="small muted">No per-site overrides saved.</p></div></section>
-<section class="card"><div class="sectionHead"><h2>Proxy list</h2><button id="refreshBtn" class="quiet">Refresh list</button></div><p id="listStatus" class="small muted">Loading public proxy list…</p><label for="countrySelect">Proxy country</label><select id="countrySelect"><option value="nl">Netherlands</option><option value="us">United States</option><option value="gb">United Kingdom</option><option value="de">Germany</option><option value="fr">France</option><option value="ca">Canada</option><option value="ch">Switzerland</option><option value="se">Sweden</option><option value="no">Norway</option><option value="fi">Finland</option><option value="dk">Denmark</option><option value="ie">Ireland</option><option value="pl">Poland</option><option value="cz">Czechia</option><option value="es">Spain</option><option value="it">Italy</option><option value="jp">Japan</option><option value="sg">Singapore</option><option value="au">Australia</option></select><button id="loadCountryBtn" class="quiet">Load selected country</button><label for="proxySelect">Choose a proxy</label><select id="proxySelect" disabled><option>Loading…</option></select><div id="proxyDetails" class="small muted">Public proxy endpoints are third-party services and may be unreliable.</div><div class="actions"><button id="connectBtn" class="primary" disabled>Connect proxy</button><button id="disconnectBtn" class="secondary" disabled>Disconnect</button></div><p id="message" class="message" role="status" aria-live="polite"></p></section>
-<section class="card"><h2>Randomize from healthy proxies</h2><p class="small muted">Test a small sample, keep only endpoints that return an exit IP, then optionally choose randomly from that saved pool each time Chrome starts. Testing briefly changes Chrome’s global proxy setting and may interrupt other tabs.</p><label class="modeChoice"><input type="checkbox" id="autoRandomize"><span>Randomize on browser startup</span></label><button id="buildPoolBtn" class="secondary">Test sample &amp; save healthy pool</button><p id="poolStatus" class="small muted">No health pool tested yet.</p></section>
-<section class="card"><h2>Route check</h2><p class="small muted">Temporarily checks the selected proxy's exit IP. This does not verify that every site will accept the proxy.</p><button id="checkBtn" class="secondary" disabled>Check proxy exit IP</button><p id="ipResult" class="small"></p></section>
-<footer><p>Public proxies are operated by third parties and are not trusted VPNs. Use HTTPS sites only. Proxy availability and exit country are not guaranteed.</p><a href="https://github.com/maximilianfeix/free-proxy-list" target="_blank" rel="noreferrer">Proxy list source ↗</a><span> · </span><a href="README.md" target="_blank">Setup &amp; privacy notes</a></footer>
-</main><script src="popup.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SiteTunnel</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="mark" id="brandIcon"></div>
+    <div class="brandCopy">
+      <h1>SiteTunnel</h1>
+      <p class="muted">Your rules. Your proxy.</p>
+    </div>
+    <span id="statusPill" class="pill">DISCONNECTED</span>
+  </header>
+
+  <section id="connectionBanner" class="connectionBanner disconnected" aria-live="polite">
+    <span id="connectionIcon" class="connectionIcon">●</span>
+    <div class="bannerText">
+      <strong id="connectionTitle">Proxy disconnected</strong>
+      <p id="connectionDetail">Your saved site rules are not active.</p>
+      <p id="tabRouteDetail" class="tabRouteDetail muted small"></p>
+    </div>
+  </section>
+
+  <!-- Active Proxies Selection & Quick Connect -->
+  <section class="card">
+    <div class="sectionHead">
+      <h2>Active Verified Proxies</h2>
+      <span id="verifiedCountBadge" class="badge">0 verified</span>
+    </div>
+    <p id="listStatus" class="small muted">Proxy list is currently empty. Go to settings below to build and test working proxies.</p>
+
+    <label for="proxySelect">Select Proxy</label>
+    <div class="proxySelectRow">
+      <select id="proxySelect" disabled>
+        <option value="">No verified proxies available</option>
+      </select>
+      <button id="starBtn" class="starBtn" title="Favorite this proxy" disabled>★</button>
+    </div>
+    <div id="proxyDetails" class="small muted">Only servers that pass connection tests are listed.</div>
+
+    <div class="actions">
+      <button id="connectBtn" class="primary" disabled>Connect proxy</button>
+      <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+    </div>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- My Favorite Proxies & Startup Randomizer -->
+  <section class="card">
+    <div class="sectionHead">
+      <h2>Favorite Proxies</h2>
+      <span id="favCountBadge" class="badge">0 favorites</span>
+    </div>
+    <p class="small muted">Star your trusted proxies. The startup randomizer picks strictly from your marked favorites.</p>
+    
+    <label class="modeChoice">
+      <input type="checkbox" id="autoRandomize">
+      <span>Randomize among favorites on startup</span>
+    </label>
+
+    <div id="favoritesList" style="margin-top: 10px;">
+      <p class="small muted">No favorite proxies added yet. Star a verified proxy above to add it here.</p>
+    </div>
+  </section>
+
+  <!-- Proxy List Builder & Testing Settings -->
+  <section class="card">
+    <div class="sectionHead">
+      <h2>Build &amp; Test Proxy List</h2>
+      <span class="muted">Automated verification</span>
+    </div>
+    <p class="small muted">Public servers drop offline frequently. Build your verified list by testing candidates first. Only servers that succeed will be saved and available for use.</p>
+
+    <label for="countrySelect">Target Country</label>
+    <select id="countrySelect">
+      <option value="nl">Netherlands</option>
+      <option value="us">United States</option>
+      <option value="gb">United Kingdom</option>
+      <option value="de">Germany</option>
+      <option value="fr">France</option>
+      <option value="ca">Canada</option>
+      <option value="ch">Switzerland</option>
+      <option value="se">Sweden</option>
+      <option value="no">Norway</option>
+      <option value="fi">Finland</option>
+      <option value="dk">Denmark</option>
+      <option value="ie">Ireland</option>
+      <option value="pl">Poland</option>
+      <option value="cz">Czechia</option>
+      <option value="es">Spain</option>
+      <option value="it">Italy</option>
+      <option value="jp">Japan</option>
+      <option value="sg">Singapore</option>
+      <option value="au">Australia</option>
+    </select>
+
+    <div style="margin-top: 10px;">
+      <button id="buildPoolBtn" class="secondary" style="width: 100%;">Fetch, test &amp; build verified list</button>
+    </div>
+    <p id="poolStatus" class="small muted">List updates automatically once daily, or whenever you build it manually here.</p>
+    <p id="lastTestedInfo" class="small muted"></p>
+  </section>
+
+  <!-- Site Rules -->
+  <section class="card">
+    <div class="sectionHead">
+      <h2>Site rules</h2>
+      <span class="muted">One domain per line</span>
+    </div>
+    <div class="modeChoices" role="radiogroup" aria-label="Site matching mode">
+      <label class="modeChoice"><input type="radio" name="siteMode" id="modeInclude" value="include" checked><span>Include list</span></label>
+      <label class="modeChoice"><input type="radio" name="siteMode" id="modeExclude" value="exclude"><span>Exclude list</span></label>
+    </div>
+    <p id="modeHelp" class="small muted">Only sites in this list use the selected proxy. All other sites connect directly.</p>
+    <label for="siteList">Your sites</label>
+    <textarea id="siteList" rows="5" spellcheck="false" placeholder="example.com&#10;shop.example.org&#10;subdomain.example.net"></textarea>
+    <button id="currentSiteBtn" class="primary">Include this site</button>
+    <p id="currentSiteStatus" class="small muted">Adds the current tab’s domain to your selected list.</p>
+    <div class="listActions">
+      <button id="saveSitesBtn" class="secondary">Save &amp; apply rules</button>
+      <button id="clearSitesBtn" class="quiet">Clear list</button>
+    </div>
+    <p id="siteStatus" class="small muted">Rules are saved on this device.</p>
+
+    <div class="siteProxyBox">
+      <div class="sectionHead">
+        <h2>Preferred proxy per site</h2>
+        <span class="muted">Optional overrides</span>
+      </div>
+      <p class="small muted">Assign specific verified proxies to individual domains.</p>
+      <div id="siteProxyMappings"></div>
+      <button id="saveSiteProxyMapBtn" class="secondary" style="margin-top: 8px;">Save domain proxy preferences</button>
+      <p id="siteProxyStatus" class="small muted">No per-site overrides saved.</p>
+    </div>
+  </section>
+
+  <!-- Route Check -->
+  <section class="card">
+    <h2>Route check</h2>
+    <p class="small muted">Temporarily verifies exit IP through the currently active or selected proxy.</p>
+    <button id="checkBtn" class="secondary" disabled>Check proxy exit IP</button>
+    <p id="ipResult" class="small"></p>
+  </section>
+
+  <footer>
+    <p>Public proxies are operated by third parties and are not trusted VPNs. Use HTTPS sites only.</p>
+    <a href="https://github.com/maximilianfeix/free-proxy-list" target="_blank" rel="noreferrer">Proxy list source ↗</a>
+  </footer>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>
