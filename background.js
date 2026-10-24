@@ -738,6 +738,16 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   }
 });
 
+// Resume persisted all-proxy scans after browser/extension restart.
+async function resumeAllProxyTestIfNeeded() {
+  const state = (await chrome.storage.local.get(["allProxyTest"])).allProxyTest;
+  if (state && state.status === "running" && Array.isArray(state.queue) && state.queue.length) {
+    chrome.alarms.create(ALL_TEST_ALARM, {delayInMinutes:0.5});
+  } else if (state && state.status === "fetching") {
+    await chrome.storage.local.set({allProxyTest:{status:"failed",error:"Browser or extension restarted while collecting country lists. Start the full scan again.",finishedAt:Date.now()}});
+  }
+}
+
 // Setup daily alarm
 async function ensureDailyAlarm() {
   const existing = await chrome.alarms.get(DAILY_TEST_ALARM);
@@ -757,6 +767,7 @@ try {
     }
     setupOffscreenDocument();
     ensureDailyAlarm();
+    resumeAllProxyTestIfNeeded();
   });
 } catch (_) {
   setupOffscreenDocument();
@@ -767,12 +778,14 @@ chrome.runtime.onInstalled.addListener(() => {
   setupOffscreenDocument();
   updateAllTabIcons();
   ensureDailyAlarm();
+  resumeAllProxyTestIfNeeded();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   setupOffscreenDocument();
   updateAllTabIcons();
   ensureDailyAlarm();
+  await resumeAllProxyTestIfNeeded();
   const stored = await getSettings();
   if (!stored.active || !stored.selectedProxy) return;
 
