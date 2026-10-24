@@ -11,7 +11,7 @@ let verifiedProxies = [];
 let favoriteProxies = [];
 let savedSiteProxyMap = {};
 const proxyLocationCache = new Map();
-const proxyLocationPending = new Set();
+const proxyLocationPending = new Map();
 const send = (type, extra = {}) => chrome.runtime.sendMessage(Object.assign({type: type}, extra));
 
 // SVG Icons (viewBox="0 0 16 16")
@@ -140,8 +140,9 @@ function renderProxies() {
     for (const proxy of favList) {
       const opt = document.createElement("option");
       opt.value = proxy;
-      opt.textContent = "★ " + proxy;
+      opt.textContent = "★ " + proxy + " · looking up location…";
       favGroup.append(opt);
+      loadProxyOptionLocation(proxy, opt, true);
     }
     select.append(favGroup);
   }
@@ -152,8 +153,9 @@ function renderProxies() {
     for (const proxy of otherList) {
       const opt = document.createElement("option");
       opt.value = proxy;
-      opt.textContent = proxy;
+      opt.textContent = proxy + " · looking up location…";
       otherGroup.append(opt);
+      loadProxyOptionLocation(proxy, opt, false);
     }
     select.append(otherGroup);
   }
@@ -185,38 +187,46 @@ function getProxyHost(proxy) {
   catch (_) { return String(proxy || "").split("://").pop().split(":")[0]; }
 }
 
-async function loadProxyLocation(proxy, label) {
-  if (proxyLocationCache.has(proxy)) {
-    label.textContent = " · " + proxyLocationCache.get(proxy);
-    return;
-  }
-  if (proxyLocationPending.has(proxy)) return;
-  proxyLocationPending.add(proxy);
-  try {
+async function getProxyLocation(proxy) {
+  if (proxyLocationCache.has(proxy)) return proxyLocationCache.get(proxy);
+  if (proxyLocationPending.has(proxy)) return proxyLocationPending.get(proxy);
+  const lookup = (async () => {
     const stored = await chrome.storage.local.get(["proxyLocationCache"]);
     const cache = stored.proxyLocationCache && typeof stored.proxyLocationCache === "object" ? stored.proxyLocationCache : {};
     const cached = cache[proxy];
-    let location;
     if (cached && cached.savedAt && Date.now() - cached.savedAt < 7 * 24 * 60 * 60 * 1000) {
-      location = cached.location;
-    } else {
-      const host = getProxyHost(proxy);
-      const response = await fetch("https://ipwho.is/" + encodeURIComponent(host), {cache:"no-store", signal:AbortSignal.timeout(5000)});
-      if (!response.ok) throw new Error("Location lookup failed");
-      const data = await response.json();
-      if (data.success === false) throw new Error(data.message || "Location unavailable");
-      const region = data.region || data.region_code || "";
-      const country = data.country || data.country_code || "";
-      location = [region, country].filter(Boolean).join(", ") || "Location unavailable";
-      cache[proxy] = {location, savedAt:Date.now()};
-      await chrome.storage.local.set({proxyLocationCache:cache});
+      proxyLocationCache.set(proxy, cached.location);
+      return cached.location;
     }
+    const host = getProxyHost(proxy);
+    const response = await fetch("https://ipwho.is/" + encodeURIComponent(host), { cache: "no-store", signal: AbortSignal.timeout(7000) });
+    if (!response.ok) throw new Error("Location lookup failed (HTTP " + response.status + ")");
+    const data = await response.json();
+    if (data.success === false) throw new Error(data.message || "Location unavailable");
+    const parts = [data.city, data.region, data.country].filter(Boolean);
+    const location = parts.join(", ") || "Location unavailable";
     proxyLocationCache.set(proxy, location);
-    label.textContent = " · " + location;
+    const latest = await chrome.storage.local.get(["proxyLocationCache"]);
+    const latestCache = latest.proxyLocationCache && typeof latest.proxyLocationCache === "object" ? latest.proxyLocationCache : {};
+    latestCache[proxy] = { location: location, savedAt: Date.now() };
+    await chrome.storage.local.set({ proxyLocationCache: latestCache });
+    return location;
+  })();
+  proxyLocationPending.set(proxy, lookup);
+  try { return await lookup; } finally { proxyLocationPending.delete(proxy); }
+}
+
+async function loadProxyLocation(proxy, label) {
+  try { label.textContent += " · " + await getProxyLocation(proxy); }
+  catch (_) { label.textContent += " · Location unavailable"; }
+}
+
+async function loadProxyOptionLocation(proxy, option, isFavorite) {
+  try {
+    const location = await getProxyLocation(proxy);
+    if (option.isConnected) option.textContent = (isFavorite ? "★ " : "") + proxy + " · " + location;
   } catch (_) {
-    label.textContent = " · Location unavailable";
-  } finally {
-    proxyLocationPending.delete(proxy);
+    if (option.isConnected) option.textContent = (isFavorite ? "★ " : "") + proxy + " · Location unavailable";
   }
 }
 
