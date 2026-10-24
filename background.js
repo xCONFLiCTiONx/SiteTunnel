@@ -1,5 +1,7 @@
 const ALARM_NAME = "sitetunnel-reapply";
 const DAILY_TEST_ALARM = "sitetunnel-daily-refresh";
+const ALL_TEST_ALARM = "sitetunnel-test-all-proxies";
+const ALL_TEST_BATCH_SIZE = 3;
 
 // SVG Icon Paths (viewBox="0 0 16 16")
 const ICON_PATH_DEFAULT = "M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46";
@@ -318,8 +320,9 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
 
     // Step 1: Render / fetch actual HTML content from Cloudflare CDN trace with 1s hard limit
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
     const start = Date.now();
+    const overallDeadline = start + 5000;
+    const timeout = setTimeout(() => controller.abort(), Math.max(1, overallDeadline - Date.now()));
     let verifiedIp = null;
 
     try {
@@ -344,7 +347,7 @@ async function testSingleProxy(proxy, sites, mode, siteProxyMap) {
 
     if (!verifiedIp) {
       const fallbackController = new AbortController();
-      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 5000);
+      const fallbackTimeout = setTimeout(() => fallbackController.abort(), Math.max(1, overallDeadline - Date.now()));
       try {
         const fallback = await fetch("https://api.ipify.org/?sitetunnel_bg=" + Date.now(), {
           cache: "no-store",
@@ -424,6 +427,111 @@ async function runBackgroundTest(countryCode) {
   });
 
   return { ok: true, count: verifiedList.length, proxies: verifiedList };
+}
+
+
+async function fetchAllProxyCandidates() {
+  const response = await fetch("https://api.github.com/repos/maximilianfeix/free-proxy-list/contents/countries", {
+    cache: "no-store",
+    headers: {"Accept":"application/vnd.github+json"}
+  });
+  if (!response.ok) throw new Error("Could not retrieve the complete country index (HTTP " + response.status + ").");
+  const files = await response.json();
+  const countryFiles = files.filter(item => item && item.type === "file" && typeof item.name === "string" && item.name.endsWith(".txt") && typeof item.download_url === "string");
+  if (!countryFiles.length) throw new Error("The proxy source returned no country lists.");
+  const all = new Set();
+  for (const file of countryFiles) {
+    try {
+      const listResponse = await fetch(file.download_url, {cache:"no-store"});
+      if (!listResponse.ok) continue;
+      for (const proxy of parseProxyLines(await listResponse.text())) all.add(proxy);
+    } catch (error) {
+      console.warn("SiteTunnel: Could not fetch proxy list " + file.name, error);
+    }
+  }
+  return [...all];
+}
+
+async function startAllProxyTest() {
+  const current = await chrome.storage.local.get(["allProxyTest"]);
+  if (current.allProxyTest && current.allProxyTest.status === "running") {
+    return {ok:true, alreadyRunning:true, total:current.allProxyTest.queue?.length || 0, tested:current.allProxyTest.tested || 0, passed:current.allProxyTest.passed || 0};
+  }
+  await chrome.storage.local.set({allProxyTest:{status:"fetching",queue:[],tested:0,passed:0,startedAt:Date.now(),errors:0}});
+  try {
+    const candidates = await fetchAllProxyCandidates();
+    const stored = await getSettings();
+    for (const favorite of (Array.isArray(stored.favoriteProxies) ? stored.favoriteProxies : [])) candidates.unshift(favorite);
+    const unique = [...new Set(candidates)];
+    const existing = new Set(Array.isArray(stored.verifiedProxies) ? stored.verifiedProxies : []);
+    const queue = unique.filter(proxy => !existing.has(proxy));
+    await chrome.storage.local.set({allProxyTest:{status:"running",queue,tested:0,passed:0,total:queue.length,startedAt:Date.now(),errors:0}});
+    await chrome.notifications.create("sitetunnel-all-test-started", {
+      type:"basic", iconUrl:"icons/icon128.png", title:"SiteTunnel: Full proxy test started",
+      message:"Testing " + queue.length.toLocaleString() + " unique proxies from all country lists in the background."
+    });
+    if (!queue.length) {
+      await finishAllProxyTest();
+      return {ok:true,total:0};
+    }
+    await processAllProxyBatch();
+    return {ok:true,total:queue.length};
+  } catch (error) {
+    await chrome.storage.local.set({allProxyTest:{status:"failed",error:error.message,finishedAt:Date.now()}});
+    await chrome.notifications.create("sitetunnel-all-test-failed", {
+      type:"basic", iconUrl:"icons/icon128.png", title:"SiteTunnel: Proxy test could not start", message:error.message || "Could not fetch the complete proxy list."
+    });
+    return {ok:false,error:error.message};
+  }
+}
+
+async function processAllProxyBatch() {
+  const state = (await chrome.storage.local.get(["allProxyTest"])).allProxyTest;
+  if (!state || state.status !== "running") return;
+  const stored = await getSettings();
+  const originalProxySetting = await chrome.proxy.settings.get({incognito:false});
+  const queue = Array.isArray(state.queue) ? [...state.queue] : [];
+  let tested = Number(state.tested) || 0;
+  let passed = Number(state.passed) || 0;
+  let errors = Number(state.errors) || 0;
+  const batch = queue.splice(0, ALL_TEST_BATCH_SIZE);
+  for (const proxy of batch) {
+    try {
+      const result = await testSingleProxy(proxy, stored.sites, stored.mode, stored.siteProxyMap);
+      if (result.ok) {
+        const latest = await chrome.storage.local.get(["verifiedProxies","healthyProxies"]);
+        const saved = [...new Set([...(Array.isArray(latest.verifiedProxies)?latest.verifiedProxies:[]), proxy])];
+        await chrome.storage.local.set({verifiedProxies:saved,healthyProxies:saved,lastTestedAt:Date.now()});
+        passed++;
+      }
+    } catch (error) {
+      errors++;
+    } finally {
+      try {
+        if (originalProxySetting && originalProxySetting.value) await chrome.proxy.settings.set({value:originalProxySetting.value,scope:"regular"});
+        else await chrome.proxy.settings.clear({scope:"regular"});
+      } catch (restoreError) { console.warn("SiteTunnel: Could not restore proxy after all-proxy test:",restoreError); }
+    }
+    tested++;
+    await chrome.storage.local.set({allProxyTest:{...state,queue,tested,passed,errors,status:"running",updatedAt:Date.now()}});
+  }
+  if (queue.length) {
+    await chrome.storage.local.set({allProxyTest:{...state,queue,tested,passed,errors,status:"running",updatedAt:Date.now()}});
+    chrome.alarms.create(ALL_TEST_ALARM,{delayInMinutes:0.5});
+  } else {
+    await finishAllProxyTest({tested,passed,errors});
+  }
+}
+
+async function finishAllProxyTest(summary) {
+  const state = (await chrome.storage.local.get(["allProxyTest","verifiedProxies"])).allProxyTest || {};
+  const result = summary || {tested:state.tested||0,passed:state.passed||0,errors:state.errors||0};
+  await chrome.storage.local.set({allProxyTest:{...state,...result,status:"complete",finishedAt:Date.now(),queue:[]}});
+  await chrome.alarms.clear(ALL_TEST_ALARM);
+  await chrome.notifications.create("sitetunnel-all-test-complete", {
+    type:"basic", iconUrl:"icons/icon128.png", title:"SiteTunnel: Full proxy test complete",
+    message:"Tested " + result.tested.toLocaleString() + " proxies. " + result.passed.toLocaleString() + " working proxies saved automatically."
+  });
 }
 
 // Offscreen Document Detection for Theme/Color-Scheme
@@ -576,6 +684,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           autoRandomize: Boolean(stored.autoRandomize),
           siteProxyMap: stored.siteProxyMap || {}
         });
+      } else if (message && message.type === "START_ALL_PROXY_TEST") {
+        const result = await startAllProxyTest();
+        sendResponse(result);
+      } else if (message && message.type === "GET_ALL_PROXY_TEST_STATE") {
+        const state = (await chrome.storage.local.get(["allProxyTest"])).allProxyTest || {status:"idle"};
+        sendResponse(state);
       } else if (message && message.type === "TRIGGER_DAILY_TEST") {
         const result = await runBackgroundTest(message.country);
         sendResponse(result);
@@ -612,6 +726,8 @@ chrome.alarms.onAlarm.addListener(async alarm => {
         await applyProxy(stored.selectedProxy, stored.sites || [], stored.mode || "include", false, stored.siteProxyMap || {});
       } catch (_) {}
     }
+  } else if (alarm.name === ALL_TEST_ALARM) {
+    try { await processAllProxyBatch(); } catch (err) { console.warn("SiteTunnel: All-proxy batch failed:",err); chrome.alarms.create(ALL_TEST_ALARM,{delayInMinutes:0.5}); }
   } else if (alarm.name === DAILY_TEST_ALARM) {
     console.log("SiteTunnel: Running scheduled daily proxy test and refresh...");
     try {
