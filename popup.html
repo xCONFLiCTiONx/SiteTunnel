@@ -121,10 +121,10 @@
       <span class="muted">One domain per line</span>
     </div>
     <div class="modeChoices" role="radiogroup" aria-label="Site matching mode">
-      <label class="modeChoice"><input type="radio" name="siteMode" id="modeInclude" value="include"><span>Include list (proxy only listed sites)</span></label>
-      <label class="modeChoice"><input type="radio" name="siteMode" id="modeExclude" value="exclude" checked><span>Exclude list (proxy all other sites)</span></label>
+      <label class="modeChoice"><input type="radio" name="siteMode" id="modeInclude" value="include" checked><span>Include list (proxy only listed sites) — SAFE DEFAULT</span></label>
+      <label class="modeChoice"><input type="radio" name="siteMode" id="modeExclude" value="exclude"><span>Exclude list (proxy all other sites)</span></label>
     </div>
-    <p id="modeHelp" class="small muted">All sites use the selected proxy except sites in this list, which connect directly.</p>
+    <p id="modeHelp" class="small muted">SAFE DEFAULT: only domains in this list use the proxy. Every other site connects directly. An empty list sends no website traffic through the proxy.</p>
     <label for="siteList">Your sites</label>
     <textarea id="siteList" rows="5" spellcheck="false" placeholder="example.com&#10;shop.example.org&#10;subdomain.example.net"></textarea>
     <button id="currentSiteBtn" class="primary">Include this site</button>
