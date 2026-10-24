@@ -4,8 +4,9 @@ A free, open-source Chrome Manifest V3 extension that lets you define your own d
 
 ## Features
 
-- **Include mode (default):** only domains in your list and their subdomains use the selected proxy; all other hostnames connect directly.
-- **Exclude mode:** all hostnames use the selected proxy except domains in your list and their subdomains, which connect directly.
+- **Include mode (default):** only requests whose destination hostname matches a listed domain or its subdomains use the selected proxy; every other hostname connects directly.
+- **Exclude mode:** all destination hostnames use the selected proxy except domains in your list and their subdomains, which connect directly.
+- **Important routing limitation:** Chrome PAC rules match the request's destination hostname, not the tab/site that initiated it. Include mode does not automatically proxy third-party APIs, IP-check services, CDNs, or embedded resources loaded by an included page. To proxy all ordinary browser destinations, use Exclude mode with an empty exclusion list.
 - Add domains one per line; protocol prefixes and URL paths are normalized, and duplicate or invalid entries are ignored.
 - Loads public proxy lists by country from [maximilianfeix/free-proxy-list](https://github.com/maximilianfeix/free-proxy-list).
 - Supports HTTP, HTTPS, SOCKS4, and SOCKS5 proxy entries where Chrome's PAC resolver supports them.
@@ -26,7 +27,7 @@ A free, open-source Chrome Manifest V3 extension that lets you define your own d
 
 This is a browser proxy switcher, **not a VPN**. Public proxy operators are strangers and may log metadata, intercept unencrypted traffic, or be malicious. Use HTTPS destinations only; do not enter passwords or sensitive information while using a public proxy. The extension cannot guarantee that any listed proxy works or is actually located in the specified country.
 
-Rules match the exact domain and its subdomains. They do not automatically include third-party media, CDN, API, or other related domains; add those separately if you want them to follow the same routing rule. Proxy behavior and protocol support depend on Chrome and the selected endpoint. This does not clear browser history or cookies. It has not been independently security-audited or verified against live sessions.
+Rules match the destination hostname and its subdomains, not the origin page that initiated the request. They do not automatically include third-party media, CDN, API, IP-check, or other related domains. In Include mode, those destinations can connect directly even when the top-level page is proxied. To avoid that destination-based split, use Exclude mode with an empty exclusion list. Proxy behavior and protocol support depend on Chrome and the selected endpoint. This does not clear browser history or cookies. It has not been independently security-audited or verified against live sessions.
 
 ## Sources
 
