@@ -699,28 +699,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!proxy) throw new Error("Select a proxy first.");
         const before = await chrome.proxy.settings.get({incognito:false});
         let tabId = null;
+        let testResult = null;
+        let testError = null;
         try {
           await applyProxy(proxy, [], "exclude", true, {});
-          const tab = await chrome.tabs.create({url:"https://api.ipify.org/?sitetunnel_check=" + Date.now(), active:false});
-          tabId = tab.id;
-          await new Promise((resolve, reject) => {
-            let finished = false;
-            const cleanup = () => { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(onUpdated); };
-            const timer = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error("Timed out waiting for the proxy test page.")); } }, 12000);
-            const onUpdated = (id, info) => { if (id === tabId && info.status === "complete" && !finished) { finished = true; cleanup(); resolve(); } };
-            chrome.tabs.onUpdated.addListener(onUpdated);
+          let finishLoad;
+          let failLoad;
+          let loaded = false;
+          const loadedPromise = new Promise((resolve, reject) => {
+            finishLoad = () => { loaded = true; resolve(); };
+            failLoad = reject;
           });
+          const onUpdated = (id, info) => {
+            if (id === tabId && info.status === "complete") finishLoad();
+          };
+          const onRemoved = (id) => {
+            if (id === tabId && !loaded) failLoad(new Error("Chrome closed the proxy test tab before it finished."));
+          };
+          chrome.tabs.onUpdated.addListener(onUpdated);
+          chrome.tabs.onRemoved.addListener(onRemoved);
+          let timer = setTimeout(() => failLoad(new Error("Timed out waiting for the proxy test page.")), 12000);
+          try {
+            const tab = await chrome.tabs.create({url:"https://api.ipify.org/?sitetunnel_check=" + Date.now(), active:false});
+            tabId = tab.id;
+            const current = await chrome.tabs.get(tabId);
+            if (current.status === "complete") finishLoad();
+            await loadedPromise;
+          } finally {
+            clearTimeout(timer);
+            chrome.tabs.onUpdated.removeListener(onUpdated);
+            chrome.tabs.onRemoved.removeListener(onRemoved);
+          }
           const result = await chrome.scripting.executeScript({target:{tabId:tabId},func:() => (document.body && document.body.innerText || "").trim()});
           const ip = result && result[0] ? String(result[0].result || "").trim() : "";
-          if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip) && !/^[0-9a-f:]+$/i.test(ip)) throw new Error("The test page did not return a valid exit IP.");
-          sendResponse({ok:true, ip:ip, proxy:proxy});
+          if (!/^(?:\\d{1,3}\\.){3}\\d{1,3}$/.test(ip) && !/^[0-9a-f:]+$/i.test(ip)) throw new Error("The test page did not return a valid exit IP.");
+          testResult = {ok:true, ip:ip, proxy:proxy};
+        } catch (err) {
+          testError = err;
         } finally {
-          if (tabId != null) { try { await chrome.tabs.remove(tabId); } catch (_) {} }
-          if (before && before.value) await chrome.proxy.settings.set({value:before.value,scope:"regular"});
-          else await chrome.proxy.settings.clear({scope:"regular"});
-          const latest = await getSettings();
-          if (latest.active && latest.selectedProxy) await applyProxy(latest.selectedProxy, latest.sites || [], latest.mode || "exclude", false, latest.siteProxyMap || {});
+          if (tabId != null) {
+            try { await chrome.tabs.get(tabId); await chrome.tabs.remove(tabId); } catch (_) {}
+          }
+          try {
+            if (before && before.value) await chrome.proxy.settings.set({value:before.value,scope:"regular"});
+            else await chrome.proxy.settings.clear({scope:"regular"});
+            const latest = await getSettings();
+            if (latest.active && latest.selectedProxy) await applyProxy(latest.selectedProxy, latest.sites || [], latest.mode || "exclude", false, latest.siteProxyMap || {});
+          } catch (restoreError) {
+            console.warn("SiteTunnel: Could not restore proxy settings after exit test:", restoreError);
+            if (!testError) testError = new Error("Exit test finished, but Chrome proxy settings could not be restored: " + restoreError.message);
+          }
         }
+        if (testError) throw testError;
+        sendResponse(testResult);
         return;
       } else if (message && message.type === "SET_TEMP_TEST") {
         const stored = await getSettings();
