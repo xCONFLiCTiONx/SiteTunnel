@@ -542,6 +542,40 @@ $("checkBtn").addEventListener("click", async () => {
   }
 });
 
+// Run the complete proxy-source scan in the service worker; it survives popup closure.
+$("testAllProxiesBtn").addEventListener("click", async () => {
+  const button = $("testAllProxiesBtn");
+  button.disabled = true;
+  $("poolStatus").textContent = "Collecting every country list and starting background verification…";
+  try {
+    const result = await send("START_ALL_PROXY_TEST");
+    if (!result || !result.ok) throw new Error(result && result.error ? result.error : "Could not start background scan.");
+    $("poolStatus").textContent = result.alreadyRunning ? "Full proxy scan is already running in the background." : "Full proxy scan started. Every working proxy is saved immediately; Windows notification appears when finished.";
+    setMessage("Background scan running. You can close this popup.", "success");
+  } catch (error) {
+    $("poolStatus").textContent = "Could not start scan: " + error.message;
+    setMessage(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function refreshAllTestStatus() {
+  try {
+    const state = await send("GET_ALL_PROXY_TEST_STATE");
+    if (!state || !state.status || state.status === "idle") return;
+    if (state.status === "running") {
+      $("poolStatus").textContent = "Background scan: " + (state.tested || 0).toLocaleString() + "/" + (state.total || 0).toLocaleString() + " tested · " + (state.passed || 0).toLocaleString() + " working saved so far.";
+    } else if (state.status === "complete") {
+      $("poolStatus").textContent = "Full scan complete: " + (state.tested || 0).toLocaleString() + " tested · " + (state.passed || 0).toLocaleString() + " working proxies saved.";
+    } else if (state.status === "fetching") {
+      $("poolStatus").textContent = "Downloading every country list…";
+    } else if (state.status === "failed") {
+      $("poolStatus").textContent = "Full scan failed: " + (state.error || "Unknown error");
+    }
+  } catch (_) {}
+}
+
 // Testing and building verified proxy pool
 $("buildPoolBtn").addEventListener("click", async () => {
   const button = $("buildPoolBtn");
