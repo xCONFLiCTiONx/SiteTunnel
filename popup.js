@@ -501,7 +501,7 @@ $("checkBtn").addEventListener("click", async () => {
     if (!setup || !setup.ok) throw new Error(setup && setup.error ? setup.error : "Could not configure test route.");
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     let observedIp = null;
 
     try {
@@ -567,7 +567,7 @@ $("buildPoolBtn").addEventListener("click", async () => {
         if (!setup || !setup.ok) continue;
 
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
+        const timeout = setTimeout(() => controller.abort(), 5000);
         const started = Date.now();
         let verifiedIp = null;
 
@@ -589,7 +589,7 @@ $("buildPoolBtn").addEventListener("click", async () => {
 
         if (!verifiedIp) {
           const fallbackController = new AbortController();
-          const fallbackTimeout = setTimeout(() => fallbackController.abort(), 8000);
+          const fallbackTimeout = setTimeout(() => fallbackController.abort(), 5000);
           try {
             const fallback = await fetch("https://api.ipify.org/?sitetunnel_check=" + Date.now(), {
               cache: "no-store",
