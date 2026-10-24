@@ -693,6 +693,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else if (message && message.type === "TRIGGER_DAILY_TEST") {
         const result = await runBackgroundTest(message.country);
         sendResponse(result);
+      } else if (message && message.type === "CHECK_PROXY_EXIT") {
+        const stored = await getSettings();
+        const proxy = message.proxy || stored.selectedProxy;
+        if (!proxy) throw new Error("Select a proxy first.");
+        const before = await chrome.proxy.settings.get({incognito:false});
+        let tabId = null;
+        try {
+          await applyProxy(proxy, [], "exclude", true, {});
+          const tab = await chrome.tabs.create({url:"https://api.ipify.org/?sitetunnel_check=" + Date.now(), active:false});
+          tabId = tab.id;
+          await new Promise((resolve, reject) => {
+            let finished = false;
+            const cleanup = () => { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(onUpdated); };
+            const timer = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error("Timed out waiting for the proxy test page.")); } }, 12000);
+            const onUpdated = (id, info) => { if (id === tabId && info.status === "complete" && !finished) { finished = true; cleanup(); resolve(); } };
+            chrome.tabs.onUpdated.addListener(onUpdated);
+          });
+          const result = await chrome.scripting.executeScript({target:{tabId:tabId},func:() => (document.body && document.body.innerText || "").trim()});
+          const ip = result && result[0] ? String(result[0].result || "").trim() : "";
+          if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip) && !/^[0-9a-f:]+$/i.test(ip)) throw new Error("The test page did not return a valid exit IP.");
+          sendResponse({ok:true, ip:ip, proxy:proxy});
+        } finally {
+          if (tabId != null) { try { await chrome.tabs.remove(tabId); } catch (_) {} }
+          if (before && before.value) await chrome.proxy.settings.set({value:before.value,scope:"regular"});
+          else await chrome.proxy.settings.clear({scope:"regular"});
+          const latest = await getSettings();
+          if (latest.active && latest.selectedProxy) await applyProxy(latest.selectedProxy, latest.sites || [], latest.mode || "exclude", false, latest.siteProxyMap || {});
+        }
+        return;
       } else if (message && message.type === "SET_TEMP_TEST") {
         const stored = await getSettings();
         const proxy = message.proxy;
