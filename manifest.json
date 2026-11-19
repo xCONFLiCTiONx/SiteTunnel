@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "SiteTunnel - Cloudflare Zero Trust & WARP Router",
+  "version": "1.0.0",
+  "description": "Route selected website traffic through Cloudflare Zero Trust / WARP Local Proxy on Windows without making WARP your entire system VPN.",
+  "permissions": [
+    "proxy",
+    "storage",
+    "alarms",
+    "activeTab",
+    "tabs",
+    "scripting",
+    "offscreen",
+    "privacy",
+    "webRequest",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "SiteTunnel (Disconnected)",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>",
+        "file:///*"
+      ],
+      "js": [
+        "renderIcon.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "minimum_chrome_version": "111"
+}

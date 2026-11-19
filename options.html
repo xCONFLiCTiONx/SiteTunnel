@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiteTunnel Settings - Cloudflare Zero Trust &amp; WARP Router</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+<div class="settingsLayout">
+  <header class="settingsHeader">
+    <div class="brand">
+      <div class="mark" id="brandIcon">
+        <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46"/>
+        </svg>
+      </div>
+      <div>
+        <h1>SiteTunnel Settings</h1>
+        <p class="subtitle muted">Cloudflare Zero Trust / WARP Local Proxy Configuration &amp; Site Routing Rules</p>
+      </div>
+    </div>
+    <div id="statusMessage" class="statusMessage" role="status"></div>
+  </header>
+
+  <div class="gridContainer">
+    <!-- Left Column: WARP Endpoint & Windows Client Guide -->
+    <div class="column">
+      <!-- Section: Cloudflare WARP Local Proxy Settings -->
+      <section class="card">
+        <div class="sectionHead">
+          <h2>Cloudflare WARP Local Proxy</h2>
+          <span class="badge cfBadge">Windows Local Proxy</span>
+        </div>
+        <p class="small muted">Configure your local Cloudflare WARP client listener. In Local Proxy mode, only selected domains are routed through WARP while the rest of your computer connects directly.</p>
+
+        <div class="fieldRow" style="margin-top:12px;">
+          <div style="flex:2;">
+            <label for="warpHostInput">Local Host / IP</label>
+            <input id="warpHostInput" type="text" spellcheck="false" autocomplete="off" value="127.0.0.1">
+          </div>
+          <div style="flex:1;">
+            <label for="warpPortInput">Port</label>
+            <input id="warpPortInput" type="number" min="1" max="65535" value="40000">
+          </div>
+        </div>
+
+        <div class="fieldRow" style="margin-top:12px;">
+          <div style="flex:1;">
+            <label for="warpProtocolSelect">Protocol</label>
+            <select id="warpProtocolSelect">
+              <option value="socks5" selected>SOCKS5 (Default in WARP)</option>
+              <option value="http">HTTP Proxy</option>
+              <option value="auto">Auto (SOCKS5 with HTTP fallback)</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label for="fallbackPolicySelect">Fallback Security</label>
+            <select id="fallbackPolicySelect">
+              <option value="fail-closed" selected>Fail-Closed (Killswitch - Block if down)</option>
+              <option value="direct">Permit Direct Fallback</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="modeChoice" style="margin-top: 14px;">
+          <input type="checkbox" id="webrtcProtection" checked>
+          <span>WebRTC Leak Protection (blocks non-proxied UDP to prevent IP leaks)</span>
+        </label>
+
+        <div style="margin-top: 16px; display: flex; gap: 8px;">
+          <button id="saveWarpConfigBtn" class="primary" style="flex: 1;">Save WARP Settings</button>
+          <button id="testWarpDiagBtn" class="secondary" style="flex: 1;">⚡ Test WARP Connection</button>
+        </div>
+
+        <!-- Diagnostic Output -->
+        <div id="diagCard" class="diagBox" style="display:none;margin-top:12px;">
+          <div id="diagStatusText" class="small"></div>
+        </div>
+      </section>
+
+      <!-- Section: Windows Client Setup Guide -->
+      <section class="card setupGuideCard">
+        <div class="sectionHead">
+          <h2>Cloudflare WARP Setup on Windows</h2>
+          <span class="badge">Official Guide</span>
+        </div>
+        <p class="small muted">Follow these quick steps in the Cloudflare WARP desktop app on Windows to enable Local Proxy Mode:</p>
+
+        <ol class="stepList">
+          <li><strong>Open Cloudflare WARP:</strong> Click the Cloudflare cloud icon in the Windows taskbar system tray.</li>
+          <li><strong>Open Settings:</strong> Click the gear icon ⚙️ → select <strong>Preferences</strong>.</li>
+          <li><strong>Configure Proxy:</strong> Go to the <strong>Advanced</strong> tab → click <strong>Configure Proxy</strong>.</li>
+          <li><strong>Enable Local Proxy:</strong> Turn on the local proxy and set the listening port to <code>40000</code>.</li>
+          <li><strong>Select Client Mode:</strong> Select <strong>Local Proxy</strong> mode in WARP's client mode list.</li>
+          <li><strong>Connect:</strong> Turn the main WARP toggle switch <strong>ON</strong>.</li>
+        </ol>
+
+        <div class="cliTip">
+          <span class="cliLabel">PowerShell / Command Prompt alternative:</span>
+          <code>warp-cli mode proxy<br>warp-cli proxy port 40000<br>warp-cli connect</code>
+        </div>
+      </section>
+    </div>
+
+    <!-- Right Column: Site Rules (Include / Exclude Lists) -->
+    <div class="column">
+      <!-- Section: Site Rules -->
+      <section class="card">
+        <div class="sectionHead">
+          <h2>Site Routing Rules</h2>
+          <span class="badge">Per-Domain PAC</span>
+        </div>
+
+        <div class="modeChoices" role="radiogroup" aria-label="Site matching mode">
+          <label class="modeChoice">
+            <input type="radio" name="siteMode" id="modeExclude" value="exclude" checked>
+            <span><strong>Exclude mode (Default):</strong> Route ALL internet traffic through Cloudflare Zero Trust EXCEPT the websites listed below.</span>
+          </label>
+          <label class="modeChoice" style="margin-top:8px;">
+            <input type="radio" name="siteMode" id="modeInclude" value="include">
+            <span><strong>Include mode:</strong> Route ONLY the websites listed below through Cloudflare Zero Trust. All other sites connect directly.</span>
+          </label>
+        </div>
+
+        <div class="settingToggleBlock" style="margin-top:14px;padding:12px;background:#0d141e;border-radius:8px;border:1px solid #2a3747;">
+          <label class="modeChoice" style="margin:0;">
+            <input type="checkbox" id="tabRoutingToggle" checked>
+            <span><strong>Whole-Tab Tunneling (Recommended):</strong> Route ALL traffic and embedded resources in the tab (including third-party CDNs, external APIs, auth providers, and scripts) through Cloudflare WARP so nothing bypasses the proxy.</span>
+          </label>
+          <div id="dynamicDomainsSummary" class="small muted" style="margin-top:6px;margin-left:24px;">Subresources and third-party APIs loaded by target tabs are automatically captured and routed.</div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label for="siteList" style="margin:0;font-weight:700;">Target Domains (one per line)</label>
+            <span id="siteCountBadge" class="small muted">0 domains</span>
+          </div>
+          <textarea id="siteList" rows="12" spellcheck="false" placeholder="example.com&#10;internal.company.com&#10;*.my-target-site.net&#10;corp.zero-trust.org"></textarea>
+          <p class="small muted" style="margin-top:4px;">Supports root domains, subdomains (e.g. <code>sub.example.com</code> or <code>*.example.com</code>), and URL prefixes (automatically cleaned).</p>
+        </div>
+
+        <div class="listActions" style="margin-top: 14px; display: flex; gap: 8px;">
+          <button id="saveSitesBtn" class="primary" style="flex:2;">Save &amp; apply rules</button>
+          <button id="clearSitesBtn" class="secondary" style="flex:1;">Clear list</button>
+        </div>
+        <p id="siteStatus" class="small muted" style="margin-top:8px;">Rules are stored locally on your device.</p>
+      </section>
+
+      <!-- Section: Routing Architecture & Caveats Reference -->
+      <section class="card">
+        <div class="sectionHead">
+          <h2>How It Works &amp; Security Caveats</h2>
+          <span class="badge">Architecture</span>
+        </div>
+        <ul class="caveatsList small muted">
+          <li><strong>Zero System Impact:</strong> Your games, Slack, and other Windows applications continue using your direct internet connection. Only the domains you specify in SiteTunnel pass through WARP.</li>
+          <li><strong>Shared Browser Settings:</strong> Chrome shares proxy settings across all windows and profiles. SiteTunnel compiles your domains into a native Chromium PAC script.</li>
+          <li><strong>Killswitch Protection:</strong> When set to <em>Fail-Closed</em>, if WARP drops offline, SiteTunnel drops requests to protected sites rather than leaking cleartext data to the open internet.</li>
+          <li><strong>Ambient Toolbar Awareness:</strong> The toolbar icon badge always reflects your proxy state without interrupting you — amber <code>!</code> when reconnecting, red <code>ERR</code> if down for 30s+, and red <code>LEAK</code> if unproxied.</li>
+          <li><strong>Whole-Tab vs Domain:</strong> With Whole-Tab Tunneling active, opening a target site routes all third-party CDNs, external APIs, auth providers, and embedded subresources in that tab through WARP so nothing bypasses the proxy.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <footer class="settingsFooter">
+    <p class="small muted">SiteTunnel · Dedicated Cloudflare Zero Trust &amp; WARP Local Proxy Routing for Google Chrome on Windows.</p>
+  </footer>
+</div>
+
+<script src="options.js"></script>
+</body>
+</html>

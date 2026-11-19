@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiteTunnel</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+  <!-- Header: Brand, Title, Status Pill, Settings Gear -->
+  <header>
+    <div class="brand">
+      <div class="mark" id="brandIcon">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5.5 13h4c.83 0 1.5-.67 1.5-1.5v-9A1.5 1.5 0 0 0 9.5 1h-4A1.5 1.5 0 0 0 4 2.5v9c0 .83.67 1.5 1.5 1.5m.65-8.85A.5.5 0 0 1 6.5 4h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 4A.5.5 0 0 1 6.5 8h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.5-.5.5.5 0 0 1 .15-.35m0 2A.5.5 0 0 1 6.5 10h2a.5.5 0 1 1 0 1h-2a.5.5 0 0 1-.35-.85m7.82 4.17-1.5-4A.5.5 0 0 0 12 10v1.5A2.5 2.5 0 0 1 9.5 14h-4A2.5 2.5 0 0 1 3 11.5V10a.5.5 0 0 0-.47.32l-1.5 4q-.05.12-.03.24a.5.5 0 0 0 .5.44h12a.5.5 0 0 0 .41-.22.5.5 0 0 0 .06-.46"/>
+        </svg>
+      </div>
+      <div>
+        <h1>SiteTunnel</h1>
+        <span id="tabRouteBadge" class="small muted">Cloudflare Zero Trust</span>
+      </div>
+    </div>
+    <div class="headerActions">
+      <span id="statusPill" class="pill">OFF</span>
+      <button id="openSettingsBtn" class="iconBtn" title="Open Settings &amp; Windows Setup Guide" aria-label="Settings">⚙️</button>
+    </div>
+  </header>
+
+  <!-- Live Connection Status Banner -->
+  <div id="connectionBanner" class="connectionBanner disconnected">
+    <div class="connectionIcon">⚡</div>
+    <div class="bannerText">
+      <span id="connectionTitle">Disconnected</span>
+      <div id="connectionDetail">Traffic connects directly without WARP</div>
+      <div id="tabRouteDetail" class="tabRouteDetail">Current tab: Direct</div>
+    </div>
+  </div>
+
+  <!-- Cloudflare WARP Local Proxy Card -->
+  <section class="card">
+    <div class="sectionHead">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="cfDot"></span>
+        <label style="margin:0;font-weight:700;">Cloudflare WARP Local Proxy</label>
+      </div>
+      <span id="proxyProtocolBadge" class="badge">SOCKS5</span>
+    </div>
+
+    <div class="endpointRow">
+      <div class="endpointTarget">
+        <span class="muted small">Local Listener:</span>
+        <strong id="endpointText">127.0.0.1:40000</strong>
+      </div>
+      <button id="quickEditBtn" class="quietLink">Edit ↗</button>
+    </div>
+    <div id="fallbackPolicyText" class="small muted">Fail-Closed: Blocks routed sites if WARP drops</div>
+
+    <!-- Primary Action Buttons: Connect, Disconnect, Test WARP -->
+    <div class="actions">
+      <button id="connectBtn" class="primary">Connect</button>
+      <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+      <button id="testWarpBtn" class="secondary" title="Test if local WARP proxy is actively reaching Cloudflare">Test WARP</button>
+    </div>
+
+    <!-- Inline Route Diagnostic Result -->
+    <div id="diagResultRow" class="diagResultRow" style="display:none;">
+      <div id="diagResult" class="small"></div>
+    </div>
+  </section>
+
+  <!-- Current Site Routing Card -->
+  <section class="card siteRuleCard">
+    <div class="siteRuleRow">
+      <div class="siteInfo">
+        <span class="small muted">Current Site</span>
+        <strong id="currentSiteDomain" class="currentSiteDomain">detecting…</strong>
+      </div>
+      <button id="currentSiteBtn" class="secondary siteToggleBtn" disabled>Route via WARP</button>
+    </div>
+    <div class="quickModeRow">
+      <label class="radioLabel"><input type="radio" name="siteMode" id="modeExclude" value="exclude" checked><span>Route all except</span></label>
+      <label class="radioLabel"><input type="radio" name="siteMode" id="modeInclude" value="include"><span>Route only listed</span></label>
+      <button id="manageRulesLink" class="quietLink">Rules (<span id="rulesCountSpan">0</span>) ↗</button>
+    </div>
+    <div class="tabTunnelQuickRow" id="tabTunnelQuickRow">
+      <label class="checkboxLabel" title="When active, all requests and subresources (CDNs, external APIs, auth, scripts) in this tab route through WARP">
+        <input type="checkbox" id="tabRoutingQuickToggle" checked>
+        <span>Whole-Tab Tunneling (includes all tab traffic)</span>
+      </label>
+    </div>
+  </section>
+
+  <!-- Footer Messages & Settings Link -->
+  <footer>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+    <button id="footerSettingsBtn" class="fullSettingsLink">⚙️ Configure Port, Killswitch &amp; Windows Setup Guide ↗</button>
+  </footer>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>
