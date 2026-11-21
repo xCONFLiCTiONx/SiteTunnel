@@ -113,4 +113,4 @@ function FindProxyForURL(url, host) {
 
 ## License
 
-MIT License. See [LICENSE](LICENSE).
+GNU GPL version 3. See [LICENSE](LICENSE). The prior MIT contributor notice is retained in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
