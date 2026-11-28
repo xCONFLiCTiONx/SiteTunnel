@@ -80,3 +80,8 @@ TestResults/
 # SiteTunnel Windows host
 windows/dist/
 windows/.extension-key.xml
+
+# Privacy: local configs, secrets, databases, keys, logs, installers
+settings.json
+*.db
+*.sqlite*
